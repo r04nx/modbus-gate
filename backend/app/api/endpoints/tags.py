@@ -15,6 +15,11 @@ def read_tags(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
 
 @router.post("/", response_model=schemas.Tag)
 def create_tag(tag: schemas.TagCreate, db: Session = Depends(get_db)):
+    # Check if tag_id already exists
+    existing_tag = db.query(models.Tag).filter(models.Tag.tag_id == tag.tag_id).first()
+    if existing_tag:
+        raise HTTPException(status_code=400, detail=f"Tag ID '{tag.tag_id}' already exists. Please use a unique tag ID.")
+    
     db_tag = models.Tag(**tag.model_dump())
     db.add(db_tag)
     db.commit()
@@ -49,6 +54,37 @@ def delete_tag(tag_id: int, db: Session = Depends(get_db)):
     db.delete(db_tag)
     db.commit()
     return {"ok": True}
+
+@router.post("/{tag_id}/write")
+async def write_tag(tag_id: int, write_data: schemas.TagWrite, db: Session = Depends(get_db)):
+    """Write a value to a tag (supports Modbus Write and SNMP Set)"""
+    from app.services.tag_writer import TagWriterService
+    
+    db_tag = db.query(models.Tag).filter(models.Tag.id == tag_id).first()
+    if not db_tag:
+        raise HTTPException(status_code=404, detail="Tag not found")
+    
+    # Only IO tags can be written to
+    if db_tag.type != "IO":
+        raise HTTPException(status_code=400, detail="Only IO tags can be written to")
+    
+    # Get device
+    if not db_tag.device_id:
+        raise HTTPException(status_code=400, detail="Tag has no associated device")
+    
+    device = db.query(models.Device).filter(models.Device.id == db_tag.device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    # Write value using appropriate protocol
+    writer = TagWriterService()
+    success, message = await writer.write_tag(device, db_tag, write_data.value)
+    
+    if success:
+        return {"ok": True, "message": message}
+    else:
+        raise HTTPException(status_code=500, detail=message)
+
 
 @router.get("/export")
 def export_tags(type: str, db: Session = Depends(get_db)):

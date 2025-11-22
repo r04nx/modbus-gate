@@ -73,3 +73,7 @@ class TagValueResponse(BaseModel):
     timestamp: datetime
     quality: str
     error_message: Optional[str] = None
+
+# Tag Write Schema
+class TagWrite(BaseModel):
+    value: Any  # Value to write to the tag

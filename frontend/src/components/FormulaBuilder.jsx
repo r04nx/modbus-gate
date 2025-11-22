@@ -40,6 +40,7 @@ const FormulaBuilder = ({ formula, onChange, mappings, onShowOperations }) => {
             <div className="flex items-center justify-between">
                 <h4 className="text-base font-bold text-white font-sans">Formula</h4>
                 <button
+                    type="button"
                     onClick={onShowOperations}
                     className="text-sm text-primary hover:text-primaryHover flex items-center gap-1.5 font-sans font-medium"
                 >
@@ -52,6 +53,7 @@ const FormulaBuilder = ({ formula, onChange, mappings, onShowOperations }) => {
             <div className="flex gap-2 flex-wrap">
                 {['A', 'B', 'C', 'D', 'E', 'F'].map(variable => (
                     <button
+                        type="button"
                         key={variable}
                         onClick={() => insertVariable(variable)}
                         disabled={!mappings[variable]}
@@ -72,6 +74,7 @@ const FormulaBuilder = ({ formula, onChange, mappings, onShowOperations }) => {
             <div className="flex gap-2 flex-wrap">
                 {quickOps.map(op => (
                     <button
+                        type="button"
                         key={op.label}
                         onClick={() => insertAtCursor(op.value)}
                         className="px-4 py-2 bg-slate-700/60 hover:bg-slate-600 text-white rounded-lg text-sm font-semibold transition-all border border-slate-600 font-sans"

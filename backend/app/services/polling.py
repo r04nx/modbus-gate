@@ -121,22 +121,29 @@ class PollingEngine:
     async def _poll_opc_ua(self, device: models.Device):
         params = device.connection_params
         url = params.get("url") # e.g. "opc.tcp://localhost:4840"
-        if not url:
-            return
-
+        
         try:
-            async with OpcUaClient(url=url) as client:
-                for tag in device.tags:
-                    if tag.enabled and tag.address: # address is NodeId e.g. "ns=2;i=2"
-                        try:
-                            node = client.get_node(tag.address)
-                            val = await node.read_value()
-                            await self.store.update_tag(tag.tag_id, val)
-                        except Exception as e:
-                            logging.error(f"Error reading OPC UA tag {tag.tag_id}: {e}")
-                            await self.store.update_tag(tag.tag_id, None, quality="BAD")
+            client = OpcUaClient(url)
+            await client.connect()
+            
+            for tag in device.tags:
+                if tag.enabled and tag.address:
+                    try:
+                        node = client.get_node(tag.address)
+                        val = await node.read_value()
+                        await self.store.update_tag(tag.tag_id, val)
+                    except Exception as e:
+                        error_msg = f"OPC UA Error: {str(e)}"
+                        logging.error(f"Error reading OPC UA tag {tag.tag_id}: {error_msg}")
+                        await self.store.update_tag(tag.tag_id, None, quality="BAD", error_message=error_msg)
+            
+            await client.disconnect()
         except Exception as e:
-            logging.error(f"Error connecting to OPC UA {url}: {e}")
+            error_msg = f"OPC UA Connection Error: {str(e)}"
+            logging.error(f"Error connecting to OPC UA {url}: {error_msg}")
+            for tag in device.tags:
+                if tag.enabled:
+                    await self.store.update_tag(tag.tag_id, None, quality="BAD", error_message=error_msg)
 
     async def _poll_snmp(self, device: models.Device):
         params = device.connection_params

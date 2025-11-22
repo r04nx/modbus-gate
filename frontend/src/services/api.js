@@ -1,7 +1,12 @@
 import axios from 'axios';
 
+// Use current host for API calls instead of hardcoded localhost
+// This allows the app to work when accessed from other devices on the network
+const API_HOST = window.location.hostname;
+const API_PORT = '8000';
+
 const api = axios.create({
-    baseURL: 'http://localhost:8000/api/v1',
+    baseURL: `http://${API_HOST}:${API_PORT}/api/v1`,
 });
 
 export const getDevices = () => api.get('/devices/');
@@ -34,5 +39,8 @@ export const getLogs = (level = null, limit = 500) => {
     return api.get('/logs/', { params });
 };
 export const clearLogs = () => api.delete('/logs/');
+
+// Tag Write
+export const writeTag = (id, value) => api.post(`/tags/${id}/write`, { value });
 
 export default api;

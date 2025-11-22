@@ -37,7 +37,8 @@ const Tags = () => {
 
     useEffect(() => {
         fetchTags();
-        const interval = setInterval(fetchValues, 1000);
+        fetchValues(); // Initial fetch
+        const interval = setInterval(fetchValues, 1000); // Update every 1 second
         return () => clearInterval(interval);
     }, []);
 
@@ -247,8 +248,8 @@ const Tags = () => {
                                                     <TagIcon size={16} />
                                                 </div>
                                                 <div>
-                                                    <div className="font-medium text-white">{tag.tag_id}</div>
-                                                    <div className="text-xs text-text-secondary">{tag.name}</div>
+                                                    <div className="font-medium text-white">{tag.name}</div>
+                                                    <div className="text-xs text-text-secondary">{tag.tag_id}</div>
                                                 </div>
                                             </div>
                                         </td>

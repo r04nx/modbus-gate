@@ -38,7 +38,7 @@ const OperationsLibrary = ({ onInsert, onClose }) => {
                 <div className="p-6 border-b border-surfaceHighlight bg-surfaceHighlight/30">
                     <div className="flex items-center justify-between mb-4">
                         <h3 className="text-2xl font-bold text-white font-sans">Mathematical Operations</h3>
-                        <button onClick={onClose} className="text-text-muted hover:text-white transition-colors">
+                        <button type="button" onClick={onClose} className="text-text-muted hover:text-white transition-colors">
                             <X size={28} />
                         </button>
                     </div>
@@ -59,6 +59,7 @@ const OperationsLibrary = ({ onInsert, onClose }) => {
                     <div className="flex gap-2 overflow-x-auto pb-2">
                         {categories.map(category => (
                             <button
+                                type="button"
                                 key={category}
                                 onClick={() => setActiveCategory(category)}
                                 className={clsx(
@@ -79,6 +80,7 @@ const OperationsLibrary = ({ onInsert, onClose }) => {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {filteredOps.map((op, index) => (
                             <button
+                                type="button"
                                 key={index}
                                 onClick={() => {
                                     onInsert(op.symbol);

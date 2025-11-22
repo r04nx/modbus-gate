@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
-import { getDevices } from '../services/api';
+import { getDevices, getTags } from '../services/api';
 import TagTreeSelector from './TagTreeSelector';
 import VariableMapper from './VariableMapper';
 import OperationsLibrary from './OperationsLibrary';
@@ -10,6 +10,7 @@ const TagForm = ({ onClose, onSubmit, editTag = null }) => {
     const isEditMode = !!editTag;
     const [type, setType] = useState(editTag?.type || 'IO');
     const [devices, setDevices] = useState([]);
+    const [tags, setTags] = useState([]);
     const [formData, setFormData] = useState({
         tag_id: editTag?.tag_id || '',
         name: editTag?.name || '',
@@ -31,22 +32,27 @@ const TagForm = ({ onClose, onSubmit, editTag = null }) => {
     const [selectedVariable, setSelectedVariable] = useState(null);
 
     useEffect(() => {
-        const fetchDevices = async () => {
+        const fetchData = async () => {
             try {
-                const { data } = await getDevices();
-                setDevices(data);
+                const [devicesRes, tagsRes] = await Promise.all([
+                    getDevices(),
+                    getTags()
+                ]);
+                setDevices(devicesRes.data);
+                setTags(tagsRes.data);
+
                 if (isEditMode && editTag?.device_id) {
-                    const device = data.find(d => d.id === editTag.device_id);
+                    const device = devicesRes.data.find(d => d.id === editTag.device_id);
                     setSelectedDevice(device);
-                } else if (data.length > 0) {
-                    setFormData(prev => ({ ...prev, device_id: data[0].id }));
-                    setSelectedDevice(data[0]);
+                } else if (devicesRes.data.length > 0) {
+                    setFormData(prev => ({ ...prev, device_id: devicesRes.data[0].id }));
+                    setSelectedDevice(devicesRes.data[0]);
                 }
             } catch (error) {
-                console.error("Failed to fetch devices", error);
+                console.error("Failed to fetch data", error);
             }
         };
-        fetchDevices();
+        fetchData();
     }, []);
 
     const handleChange = (e) => {
@@ -69,9 +75,27 @@ const TagForm = ({ onClose, onSubmit, editTag = null }) => {
     const handleSubmit = (e) => {
         e.preventDefault();
         const tagData = { ...formData, type };
+
+        // Generate unique tag_id if not provided by user
         if (!tagData.tag_id) {
-            tagData.tag_id = tagData.name.toUpperCase().replace(/\s+/g, '_');
+            // Create base from name
+            const base = tagData.name.toUpperCase().replace(/\s+/g, '_').substring(0, 20);
+            // Add timestamp + random suffix for uniqueness
+            const timestamp = Date.now().toString(36);
+            const random = Math.random().toString(36).substring(2, 6);
+            tagData.tag_id = `${base}_${timestamp}_${random}`.toUpperCase();
         }
+
+        // Check if tag_id already exists in current tags list
+        const isDuplicate = tags.some(tag =>
+            tag.tag_id === tagData.tag_id && (!editTag || tag.id !== editTag.id)
+        );
+
+        if (isDuplicate) {
+            alert(`Tag ID "${tagData.tag_id}" already exists. Please use a different Tag ID.`);
+            return;
+        }
+
         onSubmit(tagData);
     };
 
@@ -346,6 +370,8 @@ const TagForm = ({ onClose, onSubmit, editTag = null }) => {
             {/* Tag Selector Modal */}
             {showTagSelector && (
                 <TagTreeSelector
+                    tags={tags}
+                    devices={devices}
                     onSelect={(tag) => {
                         if (selectedVariable) {
                             setFormData(prev => ({

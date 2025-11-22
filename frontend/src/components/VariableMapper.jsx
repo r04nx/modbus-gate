@@ -28,6 +28,7 @@ const VariableMapper = ({ mappings, onMappingChange, onSelectTag }) => {
                                 <div className="flex-1 flex items-center justify-between p-3 bg-slate-700/60 rounded-lg border border-slate-600">
                                     <span className="text-sm text-white font-mono truncate font-sans">{tagId}</span>
                                     <button
+                                        type="button"
                                         onClick={() => removeMapping(variable)}
                                         className="text-slate-400 hover:text-error transition-colors ml-2"
                                         title="Remove mapping"
@@ -37,6 +38,7 @@ const VariableMapper = ({ mappings, onMappingChange, onSelectTag }) => {
                                 </div>
                             ) : (
                                 <button
+                                    type="button"
                                     onClick={() => onSelectTag(variable)}
                                     className="flex-1 p-3 bg-slate-700/40 hover:bg-slate-700/60 border border-dashed border-slate-500 rounded-lg text-slate-300 hover:text-white text-sm transition-all font-sans"
                                 >
