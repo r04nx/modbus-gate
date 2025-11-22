@@ -1,0 +1,10 @@
+version: '3.8'
+
+services:
+  snmp-agent:
+    image: lextudio/snmpsim:public
+    ports:
+      - "161:161/udp"
+    volumes:
+      - ./snmp_data:/usr/share/snmpsim/data
+    command: --agent-udpv4-endpoint=0.0.0.0:161

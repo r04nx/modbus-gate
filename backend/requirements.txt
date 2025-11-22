@@ -1,0 +1,15 @@
+fastapi
+typing-extensions>=4.12.2
+uvicorn
+pymodbus
+psutil
+pyserial
+sqlalchemy
+pydantic>=2.7.0
+pydantic-settings
+python-multipart
+websockets
+asyncua
+pysnmp-lextudio
+c104
+
