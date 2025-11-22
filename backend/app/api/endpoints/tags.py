@@ -14,7 +14,7 @@ def read_tags(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     return tags
 
 @router.post("/", response_model=schemas.Tag)
-def create_tag(tag: schemas.TagCreate, db: Session = Depends(get_db)):
+async def create_tag(tag: schemas.TagCreate, db: Session = Depends(get_db)):
     # Check if tag_id already exists
     existing_tag = db.query(models.Tag).filter(models.Tag.tag_id == tag.tag_id).first()
     if existing_tag:
@@ -24,6 +24,12 @@ def create_tag(tag: schemas.TagCreate, db: Session = Depends(get_db)):
     db.add(db_tag)
     db.commit()
     db.refresh(db_tag)
+    
+    # Initialize value for USER tags
+    if db_tag.type == "USER" and db_tag.initial_value is not None:
+        store = GlobalDataStore()
+        await store.update_tag(db_tag.tag_id, db_tag.initial_value)
+        
     return db_tag
 
 @router.get("/values", response_model=Dict[str, schemas.TagValueResponse])
@@ -56,21 +62,43 @@ def delete_tag(tag_id: int, db: Session = Depends(get_db)):
     return {"ok": True}
 
 @router.post("/{tag_id}/write")
-async def write_tag(tag_id: int, write_data: schemas.TagWrite, db: Session = Depends(get_db)):
+async def write_tag(tag_id: str, write_data: schemas.TagWrite, db: Session = Depends(get_db)):
     """Write a value to a tag (supports Modbus Write and SNMP Set)"""
     from app.services.tag_writer import TagWriterService
     
-    db_tag = db.query(models.Tag).filter(models.Tag.id == tag_id).first()
+    db_tag = db.query(models.Tag).filter(models.Tag.tag_id == tag_id).first()
     if not db_tag:
         raise HTTPException(status_code=404, detail="Tag not found")
     
-    # Only IO tags can be written to
-    if db_tag.type != "IO":
-        raise HTTPException(status_code=400, detail="Only IO tags can be written to")
+    # Only IO and USER tags can be written to
+    if db_tag.type not in ["IO", "USER"]:
+        raise HTTPException(status_code=400, detail="Only IO and USER tags can be written to")
     
-    # Get device
-    if not db_tag.device_id:
-        raise HTTPException(status_code=400, detail="Tag has no associated device")
+    # Get device (only for IO tags)
+    device = None
+    if db_tag.type == "IO":
+        if not db_tag.device_id:
+            raise HTTPException(status_code=400, detail="Tag has no associated device")
+        device = db.query(models.Device).filter(models.Device.id == db_tag.device_id).first()
+        if not device:
+            raise HTTPException(status_code=404, detail="Device not found")
+    
+    # Perform write
+    try:
+        if db_tag.type == "USER":
+            # For USER tags, just update the store directly
+            store = GlobalDataStore()
+            await store.update_tag(db_tag.tag_id, write_data.value)
+            return {"success": True, "message": f"Successfully updated USER tag {db_tag.tag_id}"}
+        else:
+            # For IO tags, use the writer service
+            writer = TagWriterService()
+            success, message = await writer.write_tag(device, db_tag, write_data.value)
+            
+            if not success:
+                raise HTTPException(status_code=500, detail=message)
+            
+            return {"success": True, "message": message}
     
     device = db.query(models.Device).filter(models.Device.id == db_tag.device_id).first()
     if not device:

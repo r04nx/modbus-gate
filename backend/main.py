@@ -53,6 +53,11 @@ async def startup_event():
     calc_engine = CalculationEngine()
     await calc_engine.start()
 
+    # Initialize User Tags
+    from app.services.user_tags import UserTagService
+    user_tags_service = UserTagService()
+    await user_tags_service.start()
+
 @app.get("/")
 async def root():
     return {"message": "VistaIOT Backend is running"}

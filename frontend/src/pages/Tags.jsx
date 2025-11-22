@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { getTags, createTag, updateTag, deleteTag, getTagValues, exportTags, importTags } from '../services/api';
+import { getTags, createTag, updateTag, deleteTag, getTagValues, exportTags, importTags, writeTag } from '../services/api';
 import TagForm from '../components/TagForm';
-import { Plus, Tag as TagIcon, Activity, Hash, Filter, RefreshCw, Download, Upload } from 'lucide-react';
+import { Plus, Tag as TagIcon, Activity, Hash, Filter, RefreshCw, Download, Upload, Edit2, Send } from 'lucide-react';
 import clsx from 'clsx';
 
 const Tags = () => {
@@ -13,6 +13,12 @@ const Tags = () => {
     const [showForm, setShowForm] = useState(false);
     const [filter, setFilter] = useState('ALL');
     const [loading, setLoading] = useState(true);
+
+    // Write Modal State
+    const [showWriteModal, setShowWriteModal] = useState(false);
+    const [writeTagData, setWriteTagData] = useState(null);
+    const [writeValue, setWriteValue] = useState('');
+    const [writing, setWriting] = useState(false);
 
     const fetchTags = async () => {
         setLoading(true);
@@ -117,6 +123,32 @@ const Tags = () => {
 
         // Reset file input
         event.target.value = '';
+    };
+
+    const handleWriteSubmit = async (e) => {
+        e.preventDefault();
+        if (!writeTagData) return;
+
+        setWriting(true);
+        try {
+            await writeTag(writeTagData.id, writeValue);
+            alert(`Successfully wrote value to ${writeTagData.name}`);
+            setShowWriteModal(false);
+            setWriteTagData(null);
+            setWriteValue('');
+            fetchValues(); // Refresh values immediately
+        } catch (error) {
+            console.error("Failed to write tag", error);
+            alert(`Failed to write tag: ${error.response?.data?.detail || error.message}`);
+        } finally {
+            setWriting(false);
+        }
+    };
+
+    const openWriteModal = (tag) => {
+        setWriteTagData(tag);
+        setWriteValue(values[tag.tag_id]?.value || '');
+        setShowWriteModal(true);
     };
 
     const systemTags = Object.keys(values)
@@ -319,6 +351,33 @@ const Tags = () => {
                                         <td className="p-4">
                                             {tag.type !== 'SYSTEM' && (
                                                 <div className="flex gap-2">
+                                                    {tag.type === 'IO' && (
+                                                        <button
+                                                            onClick={() => openWriteModal(tag)}
+                                                            className="text-text-muted hover:text-accent transition-colors p-1"
+                                                            title="Write Value"
+                                                        >
+                                                            <Send size={16} />
+                                                        </button>
+                                                    )}
+                                                    {tag.type === 'USER' && tag.initial_value !== null && (
+                                                        <button
+                                                            onClick={async () => {
+                                                                if (confirm(`Reset ${tag.name} to initial value (${tag.initial_value})?`)) {
+                                                                    try {
+                                                                        await writeTag(tag.tag_id, tag.initial_value);
+                                                                        fetchValues();
+                                                                    } catch (e) {
+                                                                        alert('Failed to reset value: ' + e.message);
+                                                                    }
+                                                                }
+                                                            }}
+                                                            className="text-text-muted hover:text-warning transition-colors p-1"
+                                                            title={`Reset to Initial Value (${tag.initial_value})`}
+                                                        >
+                                                            <RefreshCw size={16} />
+                                                        </button>
+                                                    )}
                                                     <button
                                                         onClick={() => {
                                                             setEditingTag(tag);
@@ -362,6 +421,117 @@ const Tags = () => {
                 onSubmit={editingTag ? handleUpdate : handleCreate}
                 editTag={editingTag}
             />}
+
+            {/* Write Value Modal */}
+            {showWriteModal && (
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
+                    <div className="bg-surface border border-surfaceHighlight rounded-2xl shadow-2xl w-full max-w-md p-6">
+                        <h3 className="text-xl font-bold text-white mb-4">Write to Tag</h3>
+
+                        <div className="bg-surfaceHighlight/20 rounded-xl p-4 mb-6 space-y-3">
+                            <div>
+                                <div className="text-xs text-text-secondary uppercase tracking-wider font-bold mb-1">Tag Details</div>
+                                <div className="text-white font-medium text-lg">{writeTagData?.name}</div>
+                                <div className="text-xs text-text-muted font-mono">{writeTagData?.tag_id}</div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4 pt-2 border-t border-surfaceHighlight/30">
+                                <div>
+                                    <div className="text-xs text-text-secondary mb-0.5">Device ID</div>
+                                    <div className="text-sm text-white font-mono">{writeTagData?.device_id}</div>
+                                </div>
+                                <div>
+                                    <div className="text-xs text-text-secondary mb-0.5">Address</div>
+                                    <div className="text-sm text-white font-mono">{writeTagData?.address}</div>
+                                </div>
+                                <div>
+                                    <div className="text-xs text-text-secondary mb-0.5">Data Type</div>
+                                    <div className="text-sm text-accent font-mono">{writeTagData?.data_type || 'UNKNOWN'}</div>
+                                </div>
+                                <div>
+                                    <div className="text-xs text-text-secondary mb-0.5">Current Value</div>
+                                    <div className="text-sm text-white font-mono">{values[writeTagData?.tag_id]?.value ?? '-'}</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <form onSubmit={handleWriteSubmit}>
+                            <div className="mb-6">
+                                <label className="block text-sm font-medium text-text-secondary mb-3">
+                                    New Value
+                                </label>
+
+                                {/* Dynamic Input Rendering */}
+                                {(writeTagData?.data_type === 'BOOL' ||
+                                    writeTagData?.params?.register_type === 'COIL' ||
+                                    writeTagData?.data_type === 'BOOLEAN') ? (
+                                    <div className="flex gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => setWriteValue('1')}
+                                            className={clsx(
+                                                "flex-1 py-3 rounded-xl font-bold transition-all border-2",
+                                                writeValue == '1' || writeValue === true || writeValue === 'true'
+                                                    ? "bg-success/20 border-success text-success shadow-[0_0_15px_rgba(34,197,94,0.3)]"
+                                                    : "bg-surfaceHighlight/30 border-transparent text-text-muted hover:bg-surfaceHighlight/50"
+                                            )}
+                                        >
+                                            ON (1)
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setWriteValue('0')}
+                                            className={clsx(
+                                                "flex-1 py-3 rounded-xl font-bold transition-all border-2",
+                                                writeValue == '0' || writeValue === false || writeValue === 'false'
+                                                    ? "bg-error/20 border-error text-error shadow-[0_0_15px_rgba(239,68,68,0.3)]"
+                                                    : "bg-surfaceHighlight/30 border-transparent text-text-muted hover:bg-surfaceHighlight/50"
+                                            )}
+                                        >
+                                            OFF (0)
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <input
+                                        type={['INT16', 'UINT16', 'INT32', 'UINT32', 'FLOAT32', 'FLOAT64', 'DOUBLE'].includes(writeTagData?.data_type) ? "number" : "text"}
+                                        value={writeValue}
+                                        onChange={(e) => setWriteValue(e.target.value)}
+                                        className="w-full px-4 py-3 bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors font-mono text-lg"
+                                        placeholder="Enter value..."
+                                        autoFocus
+                                        step="any"
+                                    />
+                                )}
+                            </div>
+
+                            <div className="flex justify-end gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowWriteModal(false)}
+                                    className="px-4 py-2 text-text-secondary hover:text-white transition-colors"
+                                    disabled={writing}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="px-6 py-2 bg-primary hover:bg-primaryHover text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg shadow-primary/20"
+                                    disabled={writing}
+                                >
+                                    {writing ? (
+                                        <>
+                                            <RefreshCw size={16} className="animate-spin" />
+                                            Writing...
+                                        </>
+                                    ) : (
+                                        'Write Value'
+                                    )}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

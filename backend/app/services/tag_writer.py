@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from typing import Tuple
 from app.models import models
 from pymodbus.client import AsyncModbusTcpClient, AsyncModbusSerialClient
 from pysnmp.hlapi.asyncio import SnmpEngine, CommunityData, UdpTransportTarget, ContextData, ObjectType, ObjectIdentity, setCmd
@@ -9,7 +10,7 @@ from pysnmp.proto.rfc1902 import Integer, Gauge32, Counter32, Counter64, OctetSt
 class TagWriterService:
     """Service for writing values to tags via different protocols"""
     
-    async def write_tag(self, device: models.Device, tag: models.Tag, value) -> tuple[bool, str]:
+    async def write_tag(self, device: models.Device, tag: models.Tag, value) -> Tuple[bool, str]:
         """
         Write a value to a tag based on device protocol
         
@@ -29,8 +30,7 @@ class TagWriterService:
             elif device.type == "SNMP":
                 return await self._write_snmp(device, tag, value)
             elif device.type == "OPC_UA":
-                # OPC UA write would go here
-                return False, "OPC UA write not yet implemented"
+                return await self._write_opc_ua(device, tag, value)
             elif device.type == "IEC104":
                 # IEC104 write would go here
                 return False, "IEC104 write not yet implemented"
@@ -40,7 +40,7 @@ class TagWriterService:
             logging.error(f"Error writing to tag {tag.tag_id}: {e}")
             return False, f"Write error: {str(e)}"
     
-    async def _write_modbus_tcp(self, device: models.Device, tag: models.Tag, value) -> tuple[bool, str]:
+    async def _write_modbus_tcp(self, device: models.Device, tag: models.Tag, value) -> Tuple[bool, str]:
         """Write to Modbus TCP device"""
         params = device.connection_params
         host = params.get("host")
@@ -85,7 +85,7 @@ class TagWriterService:
         except Exception as e:
             return False, f"Modbus TCP write exception: {str(e)}"
     
-    async def _write_modbus_rtu(self, device: models.Device, tag: models.Tag, value) -> tuple[bool, str]:
+    async def _write_modbus_rtu(self, device: models.Device, tag: models.Tag, value) -> Tuple[bool, str]:
         """Write to Modbus RTU device"""
         params = device.connection_params
         
@@ -135,7 +135,7 @@ class TagWriterService:
         except Exception as e:
             return False, f"Modbus RTU write exception: {str(e)}"
     
-    async def _write_snmp(self, device: models.Device, tag: models.Tag, value) -> tuple[bool, str]:
+    async def _write_snmp(self, device: models.Device, tag: models.Tag, value) -> Tuple[bool, str]:
         """Write to SNMP device using SET command"""
         params = device.connection_params
         host = params.get("host")
@@ -143,13 +143,29 @@ class TagWriterService:
         community = params.get("community", "private")  # Write usually needs 'private' community
         
         try:
-            # Determine SNMP data type
-            # For simplicity, we'll try Integer first, then OctetString
+            # Determine SNMP data type based on tag configuration or value
             snmp_value = None
+            data_type = tag.data_type
+            
             try:
-                snmp_value = Integer(int(value))
-            except (ValueError, TypeError):
-                snmp_value = OctetString(str(value))
+                if data_type in ["INTEGER", "INT16", "INT32"]:
+                    snmp_value = Integer(int(value))
+                elif data_type in ["GAUGE", "GAUGE32", "UINT32"]:
+                    snmp_value = Gauge32(int(value))
+                elif data_type in ["COUNTER", "COUNTER32"]:
+                    snmp_value = Counter32(int(value))
+                elif data_type in ["COUNTER64"]:
+                    snmp_value = Counter64(int(value))
+                elif data_type in ["STRING", "OCTET_STRING"]:
+                    snmp_value = OctetString(str(value))
+                else:
+                    # Fallback auto-detection
+                    try:
+                        snmp_value = Integer(int(value))
+                    except (ValueError, TypeError):
+                        snmp_value = OctetString(str(value))
+            except Exception as e:
+                return False, f"Failed to convert value '{value}' to SNMP type {data_type}: {e}"
             
             errorIndication, errorStatus, errorIndex, varBinds = await setCmd(
                 SnmpEngine(),
@@ -168,3 +184,71 @@ class TagWriterService:
                 
         except Exception as e:
             return False, f"SNMP write exception: {str(e)}"
+
+    async def _write_opc_ua(self, device: models.Device, tag: models.Tag, value) -> Tuple[bool, str]:
+        """Write to OPC UA device"""
+        from asyncua import Client, ua
+        
+        params = device.connection_params
+        url = params.get("url")
+        if not url:
+            # Construct URL if not provided directly
+            host = params.get("host", "localhost")
+            port = params.get("port", 4840)
+            url = f"opc.tcp://{host}:{port}"
+            
+        try:
+            async with Client(url=url) as client:
+                # Find the node
+                try:
+                    node = client.get_node(tag.address)
+                    # Read data type to ensure we write the correct variant
+                    # This is optional but good for safety. For now, we'll try to infer or use tag type.
+                    
+                    # Convert value based on tag data type
+                    variant_type = None
+                    converted_value = value
+                    
+                    if tag.data_type in ["INT16", "INT32"]:
+                        converted_value = int(value)
+                        variant_type = ua.VariantType.Int32
+                    elif tag.data_type in ["UINT16", "UINT32"]:
+                        converted_value = int(value)
+                        variant_type = ua.VariantType.UInt32
+                    elif tag.data_type in ["INT64"]:
+                        converted_value = int(value)
+                        variant_type = ua.VariantType.Int64
+                    elif tag.data_type in ["UINT64"]:
+                        converted_value = int(value)
+                        variant_type = ua.VariantType.UInt64
+                    elif tag.data_type in ["FLOAT", "FLOAT32"]:
+                        converted_value = float(value)
+                        variant_type = ua.VariantType.Float
+                    elif tag.data_type in ["DOUBLE", "FLOAT64"]:
+                        converted_value = float(value)
+                        variant_type = ua.VariantType.Double
+                    elif tag.data_type in ["BOOL", "BOOLEAN"]:
+                        if isinstance(value, str):
+                            converted_value = value.lower() in ('true', '1', 'yes', 'on')
+                        else:
+                            converted_value = bool(value)
+                        variant_type = ua.VariantType.Boolean
+                    elif tag.data_type == "STRING":
+                        converted_value = str(value)
+                        variant_type = ua.VariantType.String
+                    
+                    # Create DataValue with Variant
+                    if variant_type:
+                        dv = ua.DataValue(ua.Variant(converted_value, variant_type))
+                    else:
+                        # Let asyncua try to guess
+                        dv = ua.DataValue(ua.Variant(converted_value))
+                        
+                    await node.write_value(dv)
+                    return True, f"Successfully wrote {value} to Node {tag.address}"
+                    
+                except Exception as e:
+                    return False, f"OPC UA Node Error: {e}"
+                    
+        except Exception as e:
+            return False, f"OPC UA Connection Error: {e}"
