@@ -5,8 +5,12 @@ import axios from 'axios';
 const API_HOST = window.location.hostname;
 const API_PORT = '8000';
 
+// Helper function for Basic Auth
+const getAuthHeader = () => ({ Authorization: `Basic ${btoa('admin:admin')}` });
+
 const api = axios.create({
     baseURL: `http://${API_HOST}:${API_PORT}/api/v1`,
+    headers: getAuthHeader()
 });
 
 export const getDevices = () => api.get('/devices/');
@@ -25,7 +29,7 @@ export const importTags = (type, file) => {
     const formData = new FormData();
     formData.append('file', file);
     return api.post(`/tags/import?type=${type}`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': 'multipart/form-data', ...getAuthHeader() }
     });
 };
 
@@ -52,9 +56,13 @@ export const exportConfiguration = (options = {}) => {
     Object.entries(options).forEach(([key, value]) => {
         params.append(key, value);
     });
-    return api.get(`/config/export?${params.toString()}`);
+    return api.get(`/config/export?${params.toString()}`, {
+        headers: getAuthHeader()
+    });
 };
 
-export const importConfiguration = (config) => api.post('/config/import', config);
+export const importConfiguration = (config) => api.post('/config/import', config, {
+    headers: getAuthHeader()
+});
 
 export default api;
