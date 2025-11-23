@@ -70,9 +70,9 @@ const DeviceForm = ({ onClose, onSubmit, editDevice = null }) => {
     };
 
     return (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-surface/50 backdrop-blur-md border border-surfaceHighlight rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-                <div className="sticky top-0 bg-surface/95 backdrop-blur-md border-b border-surfaceHighlight/50 p-6 flex justify-between items-center z-10">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-50 p-4">
+            <div className="bg-surface/70 backdrop-blur-xl border border-surfaceHighlight/50 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                <div className="sticky top-0 bg-surface/90 backdrop-blur-xl border-b border-surfaceHighlight/50 p-6 flex justify-between items-center z-10">
                     <h3 className="text-2xl font-bold text-white">{isEditMode ? 'Edit Device' : 'Add Device'}</h3>
                     <button onClick={onClose} className="text-text-muted hover:text-white transition-colors p-2 hover:bg-surfaceHighlight/30 rounded-lg">
                         <X size={20} />

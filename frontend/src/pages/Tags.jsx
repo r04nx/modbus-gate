@@ -12,7 +12,7 @@ const Tags = () => {
     const [tags, setTags] = useState([]);
     const [values, setValues] = useState({});
     const [showForm, setShowForm] = useState(false);
-    const [filter, setFilter] = useState('ALL');
+    const [filter, setFilter] = useState('IO');
     const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(true);
 
@@ -85,8 +85,8 @@ const Tags = () => {
     };
 
     const handleExport = async () => {
-        if (filter === 'ALL' || filter === 'SYSTEM') {
-            alert('Please select a specific tag type (IO, CALCULATION, or USER) to export');
+        if (filter === 'SYSTEM') {
+            alert('Cannot export SYSTEM tags');
             return;
         }
 
@@ -106,8 +106,8 @@ const Tags = () => {
     };
 
     const handleImport = async (event) => {
-        if (filter === 'ALL' || filter === 'SYSTEM') {
-            alert('Please select a specific tag type (IO, CALCULATION, or USER) to import');
+        if (filter === 'SYSTEM') {
+            alert('Cannot import SYSTEM tags');
             return;
         }
 
@@ -163,7 +163,7 @@ const Tags = () => {
         }));
 
     let allTags = [...tags];
-    if (filter === 'ALL' || filter === 'SYSTEM') {
+    if (filter === 'SYSTEM') {
         // Avoid duplicates if any
         const existingIds = new Set(allTags.map(t => t.tag_id));
         const newSysTags = systemTags.filter(t => !existingIds.has(t.tag_id));
@@ -174,7 +174,7 @@ const Tags = () => {
         allTags = allTags.filter(t => t.device_id == deviceIdFilter);
     }
 
-    let filteredTags = filter === 'ALL' ? allTags : allTags.filter(t => t.type === filter);
+    let filteredTags = allTags.filter(t => t.type === filter);
 
     // Apply search filter
     if (searchQuery.trim()) {
@@ -197,7 +197,7 @@ const Tags = () => {
                 </div>
                 <div className="flex items-center gap-4">
                     <div className="flex items-center bg-surfaceHighlight/30 rounded-xl p-1 border border-surfaceHighlight/50">
-                        {['ALL', 'IO', 'CALCULATION', 'USER', 'SYSTEM'].map(type => (
+                        {['IO', 'CALCULATION', 'USER', 'SYSTEM'].map(type => (
                             <button
                                 key={type}
                                 onClick={() => setFilter(type)}
@@ -206,16 +206,16 @@ const Tags = () => {
                                     filter === type ? "bg-primary text-white shadow-md" : "text-text-secondary hover:text-white"
                                 )}
                             >
-                                {type === 'ALL' ? 'All Tags' : type}
+                                {type}
                             </button>
                         ))}
                     </div>
                     <div className="flex gap-3">
                         <button
                             onClick={handleExport}
-                            disabled={filter === 'ALL' || filter === 'SYSTEM'}
+                            disabled={filter === 'SYSTEM'}
                             className="flex items-center gap-2 bg-surfaceHighlight hover:bg-surfaceHighlight/80 text-white px-4 py-3 rounded-xl font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                            title={filter === 'ALL' || filter === 'SYSTEM' ? 'Select a specific tag type to export' : 'Export tags as CSV'}
+                            title={filter === 'SYSTEM' ? 'Cannot export system tags' : 'Export tags as CSV'}
                         >
                             <Download size={18} />
                             Export CSV
@@ -277,7 +277,6 @@ const Tags = () => {
                         <thead>
                             <tr className="bg-surfaceHighlight/30 border-b border-surfaceHighlight/50">
                                 <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Tag Name</th>
-                                {filter === 'ALL' && <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Type</th>}
                                 {filter === 'IO' && (
                                     <>
                                         <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Device</th>
@@ -310,19 +309,6 @@ const Tags = () => {
                                                 </div>
                                             </div>
                                         </td>
-                                        {filter === 'ALL' && (
-                                            <td className="p-4">
-                                                <span className={clsx(
-                                                    "px-2 py-1 rounded-md text-xs font-medium border",
-                                                    tag.type === 'IO' ? "bg-blue-500/10 text-blue-400 border-blue-500/20" :
-                                                        tag.type === 'CALCULATION' ? "bg-purple-500/10 text-purple-400 border-purple-500/20" :
-                                                            tag.type === 'SYSTEM' ? "bg-slate-500/10 text-slate-400 border-slate-500/20" :
-                                                                "bg-orange-500/10 text-orange-400 border-orange-500/20"
-                                                )}>
-                                                    {tag.type}
-                                                </span>
-                                            </td>
-                                        )}
                                         {filter === 'IO' && (
                                             <>
                                                 <td className="p-4 text-sm text-text-secondary">{tag.device_id}</td>
