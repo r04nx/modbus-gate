@@ -821,6 +821,7 @@ export default function Servers() {
                             </div>
                         ))}
                     </div>
+                    )}
                 </div>
             </div>
         );
