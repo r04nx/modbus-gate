@@ -276,40 +276,43 @@ def update_interface(
                 detail=f"Interface '{interface}' not found"
             )
 
-        # Get existing connection UUID
-        uuid, _ = get_connection_info(interface)
-        print(f"[DEBUG] Interface: {interface}, UUID: {uuid}")
+        print(f"[DEBUG] Configuring interface: {interface}")
         
-        # If no connection exists, create a new one
-        if not uuid:
-            try:
-                subprocess.run(
-                    [NMCLI, "con", "add", "type", "ethernet", "ifname", interface, "con-name", interface],
-                    check=True,
-                    capture_output=True
+        # Delete any existing connections for this interface to start fresh
+        try:
+            result = subprocess.run(
+                [NMCLI, "-t", "-f", "UUID", "con", "show"],
+                capture_output=True,
+                text=True
+            )
+            for line in result.stdout.splitlines():
+                if not line:
+                    continue
+                uuid = line.strip()
+                details = subprocess.run(
+                    [NMCLI, "-t", "-f", "connection.interface-name", "con", "show", uuid],
+                    capture_output=True,
+                    text=True
                 )
-                uuid, _ = get_connection_info(interface) # Refresh
-                print(f"[DEBUG] Created new connection, UUID: {uuid}")
-            except subprocess.CalledProcessError as e:
-                raise HTTPException(status_code=500, detail=f"Failed to create connection: {e.stderr}")
-
-        if not uuid:
-             raise HTTPException(status_code=500, detail="Could not determine connection UUID")
-
-        # Modify the specific connection by UUID to avoid ambiguity
+                iface_name = details.stdout.strip().split(":")[-1]
+                if iface_name == interface:
+                    print(f"[DEBUG] Deleting existing connection {uuid} for {interface}")
+                    subprocess.run([NMCLI, "con", "delete", uuid], capture_output=True)
+        except Exception as e:
+            print(f"[WARN] Error cleaning up connections: {e}")
+        
+        # Create new connection with all settings
+        connection_name = f"{interface}-config"
+        
         if config.dhcp:
-            print(f"[DEBUG] Configuring {uuid} for DHCP")
-            subprocess.run(
-                [NMCLI, "con", "mod", uuid, "ipv4.method", "auto"],
-                check=True,
-                capture_output=True
-            )
-            # Clear any static IP settings just in case
-            subprocess.run(
-                [NMCLI, "con", "mod", uuid, "ipv4.addresses", "", "ipv4.gateway", ""],
-                check=False, # Might fail if already empty, that's fine
-                capture_output=True
-            )
+            print(f"[DEBUG] Creating DHCP connection for {interface}")
+            cmd = [
+                NMCLI, "con", "add",
+                "type", "ethernet",
+                "ifname", interface,
+                "con-name", connection_name,
+                "ipv4.method", "auto"
+            ]
         else:
             if not config.ip_address or not config.netmask:
                 raise HTTPException(
@@ -322,44 +325,37 @@ def update_interface(
             binary = "".join([bin(int(x))[2:].zfill(8) for x in netmask_parts])
             cidr = binary.count("1")
             
-            print(f"[DEBUG] Configuring {uuid} for static IP {config.ip_address}/{cidr}")
-            subprocess.run(
-                [NMCLI, "con", "mod", uuid, "ipv4.method", "manual"],
-                check=True,
-                capture_output=True
-            )
-            subprocess.run(
-                [NMCLI, "con", "mod", uuid, "ipv4.addresses", f"{config.ip_address}/{cidr}"],
-                check=True,
-                capture_output=True
-            )
+            print(f"[DEBUG] Creating static IP connection for {interface}: {config.ip_address}/{cidr}")
+            
+            cmd = [
+                NMCLI, "con", "add",
+                "type", "ethernet",
+                "ifname", interface,
+                "con-name", connection_name,
+                "ipv4.method", "manual",
+                "ipv4.addresses", f"{config.ip_address}/{cidr}"
+            ]
             
             if config.gateway:
-                subprocess.run(
-                    [NMCLI, "con", "mod", uuid, "ipv4.gateway", config.gateway],
-                    check=True,
-                    capture_output=True
-                )
-            else:
-                # Remove gateway if not provided
-                subprocess.run(
-                    [NMCLI, "con", "mod", uuid, "ipv4.gateway", ""],
-                    check=False,
-                    capture_output=True
-                )
-
-        # Apply changes
-        print(f"[DEBUG] Bringing up connection {uuid}")
+                cmd.extend(["ipv4.gateway", config.gateway])
+        
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"[ERROR] Failed to create connection: {result.stderr}")
+            raise subprocess.CalledProcessError(result.returncode, result.args, result.stdout, result.stderr)
+        
+        # Activate the connection
+        print(f"[DEBUG] Activating connection {connection_name}")
         result = subprocess.run(
-            [NMCLI, "con", "up", uuid],
+            [NMCLI, "con", "up", connection_name],
             capture_output=True,
             text=True
         )
         if result.returncode != 0:
-            print(f"[ERROR] nmcli con up failed: {result.stderr}")
+            print(f"[ERROR] Failed to activate connection: {result.stderr}")
             raise subprocess.CalledProcessError(result.returncode, result.args, result.stdout, result.stderr)
         
-        # Ensure interface is up at link level too
+        # Ensure interface is up at link level
         try:
             subprocess.run([IP_CMD, "link", "set", interface, "up"], check=True, capture_output=True)
         except:
