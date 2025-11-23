@@ -339,6 +339,7 @@ def update_interface(
             if config.gateway:
                 cmd.extend(["ipv4.gateway", config.gateway])
         
+        print(f"[DEBUG] Executing command: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
             print(f"[ERROR] Failed to create connection: {result.stderr}")
@@ -352,8 +353,17 @@ def update_interface(
             text=True
         )
         if result.returncode != 0:
-            print(f"[ERROR] Failed to activate connection: {result.stderr}")
-            raise subprocess.CalledProcessError(result.returncode, result.args, result.stdout, result.stderr)
+            # Check if it's a "no carrier" error (cable unplugged)
+            if "no carrier" in result.stderr.lower() or "unavailable" in result.stderr.lower():
+                print(f"[WARN] Connection created but not activated (no carrier on {interface})")
+                return {
+                    "success": True,
+                    "message": f"Interface '{interface}' configured successfully (will activate when cable is connected)",
+                    "config": config.dict()
+                }
+            else:
+                print(f"[ERROR] Failed to activate connection: {result.stderr}")
+                raise subprocess.CalledProcessError(result.returncode, result.args, result.stdout, result.stderr)
         
         # Ensure interface is up at link level
         try:
