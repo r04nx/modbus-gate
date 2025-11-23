@@ -143,40 +143,41 @@ const NetworkConfiguration = () => {
                         </label>
                     </div>
 
-                    {!config.dhcp && (
-                        <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                            <div>
-                                <label className="block text-sm font-medium text-text-secondary mb-2">IP Address</label>
-                                <input
-                                    type="text"
-                                    value={config.ip_address}
-                                    onChange={(e) => setConfig({ ...config, ip_address: e.target.value })}
-                                    placeholder="192.168.1.100"
-                                    className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-400 transition-colors"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-text-secondary mb-2">Netmask</label>
-                                <input
-                                    type="text"
-                                    value={config.netmask}
-                                    onChange={(e) => setConfig({ ...config, netmask: e.target.value })}
-                                    placeholder="255.255.255.0"
-                                    className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-400 transition-colors"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-text-secondary mb-2">Gateway (Optional)</label>
-                                <input
-                                    type="text"
-                                    value={config.gateway}
-                                    onChange={(e) => setConfig({ ...config, gateway: e.target.value })}
-                                    placeholder="192.168.1.1"
-                                    className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-400 transition-colors"
-                                />
-                            </div>
+                    <div className={clsx("space-y-4 transition-all duration-300", config.dhcp ? "opacity-75" : "opacity-100")}>
+                        <div>
+                            <label className="block text-sm font-medium text-text-secondary mb-2">IP Address</label>
+                            <input
+                                type="text"
+                                value={config.ip_address}
+                                onChange={(e) => setConfig({ ...config, ip_address: e.target.value })}
+                                placeholder="192.168.1.100"
+                                disabled={config.dhcp}
+                                className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-400 transition-colors disabled:cursor-not-allowed disabled:bg-surfaceHighlight/10"
+                            />
                         </div>
-                    )}
+                        <div>
+                            <label className="block text-sm font-medium text-text-secondary mb-2">Netmask</label>
+                            <input
+                                type="text"
+                                value={config.netmask}
+                                onChange={(e) => setConfig({ ...config, netmask: e.target.value })}
+                                placeholder="255.255.255.0"
+                                disabled={config.dhcp}
+                                className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-400 transition-colors disabled:cursor-not-allowed disabled:bg-surfaceHighlight/10"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-text-secondary mb-2">Gateway (Optional)</label>
+                            <input
+                                type="text"
+                                value={config.gateway}
+                                onChange={(e) => setConfig({ ...config, gateway: e.target.value })}
+                                placeholder="192.168.1.1"
+                                disabled={config.dhcp}
+                                className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-400 transition-colors disabled:cursor-not-allowed disabled:bg-surfaceHighlight/10"
+                            />
+                        </div>
+                    </div>
 
                     <button
                         onClick={handleSave}

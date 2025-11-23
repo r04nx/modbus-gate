@@ -281,6 +281,16 @@ def update_interface(
                         capture_output=True
                     )
         
+        # Ensure interface is brought up regardless of method used
+        try:
+            subprocess.run(
+                ["ip", "link", "set", interface, "up"],
+                check=True,
+                capture_output=True
+            )
+        except subprocess.CalledProcessError:
+            pass # Ignore if already up or failed, as previous commands should have handled it
+
         return {
             "success": True,
             "message": f"Interface '{interface}' configured successfully",
