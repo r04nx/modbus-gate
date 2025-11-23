@@ -254,9 +254,10 @@ export default function Servers() {
         let filename = `${activeTab}_config.csv`;
 
         if (activeTab === 'MODBUS_SERVER') {
-            csvContent += "tag_id,register_type,address,data_type,unit_id\n";
+            csvContent += "tag_id,slave_id,register_type,address,data_type\n";
             (config.config.mappings || []).forEach(m => {
-                csvContent += `${m.tag_id},${m.register_type},${m.address},${m.data_type},${m.unit_id}\n`;
+                const slaveId = m.slave_id !== undefined ? m.slave_id : (config.config.slave_id || 1);
+                csvContent += `${m.tag_id},${slaveId},${m.register_type},${m.address},${m.data_type}\n`;
             });
         } else if (activeTab === 'OPC_UA_SERVER') {
             csvContent += "tag_id,node_name,data_type\n";
@@ -323,10 +324,10 @@ export default function Servers() {
                     if (row.length >= 5) {
                         newMappings.push({
                             tag_id: row[0],
-                            register_type: row[1],
-                            address: parseInt(row[2]),
-                            data_type: row[3],
-                            unit_id: parseInt(row[4])
+                            slave_id: parseInt(row[1]),
+                            register_type: row[2],
+                            address: parseInt(row[3]),
+                            data_type: row[4]
                         });
                     }
                 } else if (activeTab === 'OPC_UA_SERVER') {
@@ -434,6 +435,7 @@ export default function Servers() {
                         <thead className="bg-surfaceHighlight/20 text-text-secondary font-medium">
                             <tr>
                                 <th className="px-6 py-3">Tag ID</th>
+                                <th className="px-6 py-3">Slave ID</th>
                                 <th className="px-6 py-3">Register Type</th>
                                 <th className="px-6 py-3">Address</th>
                                 <th className="px-6 py-3">Data Type</th>
@@ -444,6 +446,16 @@ export default function Servers() {
                             {(config.config.mappings || []).map((mapping, idx) => (
                                 <tr key={idx} className="hover:bg-surfaceHighlight/5 transition-colors">
                                     <td className="px-6 py-3 text-white font-mono">{mapping.tag_id}</td>
+                                    <td className="px-6 py-3">
+                                        <input
+                                            type="number"
+                                            value={mapping.slave_id !== undefined ? mapping.slave_id : (config.config.slave_id || 1)}
+                                            onChange={(e) => updateMapping(idx, 'slave_id', parseInt(e.target.value))}
+                                            className="w-16 bg-transparent border border-surfaceHighlight/30 rounded px-2 py-1 text-text-secondary focus:text-white focus:border-primary outline-none"
+                                            min="1"
+                                            max="247"
+                                        />
+                                    </td>
                                     <td className="px-6 py-3">
                                         <select
                                             value={mapping.register_type}
