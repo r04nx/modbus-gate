@@ -43,4 +43,7 @@ export const clearLogs = () => api.delete('/logs/');
 // Tag Write
 export const writeTag = (id, value) => api.post(`/tags/${id}/write`, { value });
 
+// Server Config
+export const getServerConfig = (type) => api.get(`/servers/${type}`);
+
 export default api;
