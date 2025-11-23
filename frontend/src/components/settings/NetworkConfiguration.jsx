@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Network, Wifi, WifiOff } from 'lucide-react';
 import axios from 'axios';
+import clsx from 'clsx';
 
 const NetworkConfiguration = () => {
     const [interfaces, setInterfaces] = useState([]);

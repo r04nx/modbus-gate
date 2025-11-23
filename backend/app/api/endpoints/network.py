@@ -15,6 +15,8 @@ from typing import Optional, List
 import subprocess
 import re
 import socket
+import json
+import psutil
 
 from ...core.database import get_db
 from ...core.auth import get_current_user, get_current_superroot
@@ -23,6 +25,9 @@ from ...models.user import User
 
 router = APIRouter()
 
+# Constants
+NMCLI = "/usr/bin/nmcli"
+IP_CMD = "/usr/sbin/ip"
 
 # Pydantic models
 class NetworkInterface(BaseModel):
@@ -32,6 +37,7 @@ class NetworkInterface(BaseModel):
     netmask: Optional[str]
     gateway: Optional[str]
     is_up: bool
+    dhcp: bool = False  # Added field for persistent config status
 
 
 class InterfaceConfig(BaseModel):
@@ -47,20 +53,87 @@ class ConnectivityResponse(BaseModel):
     message: str
 
 
-# Helper functions
-import psutil
+def get_connection_info(interface: str):
+    """Get NetworkManager connection info for an interface."""
+    try:
+        # Get all connections
+        result = subprocess.run(
+            [NMCLI, "-t", "-f", "UUID,DEVICE", "con", "show"],
+            capture_output=True,
+            text=True
+        )
+        
+        active_uuid = None
+        candidate_uuids = []
+        
+        # First pass: find active connection for this device
+        for line in result.stdout.splitlines():
+            if not line:
+                continue
+            parts = line.split(":")
+            if len(parts) >= 2:
+                uuid = parts[0]
+                device = parts[1]
+                if device == interface:
+                    active_uuid = uuid
+                    break
+        
+        # Second pass: if no active connection, find all connections bound to this interface
+        if not active_uuid:
+            result = subprocess.run(
+                [NMCLI, "-t", "-f", "UUID", "con", "show"],
+                capture_output=True,
+                text=True
+            )
+            
+            for line in result.stdout.splitlines():
+                if not line:
+                    continue
+                uuid = line.strip()
+                
+                # Check if this connection is bound to our interface
+                try:
+                    details = subprocess.run(
+                        [NMCLI, "-t", "-f", "connection.interface-name", "con", "show", uuid],
+                        capture_output=True,
+                        text=True
+                    )
+                    iface_name = details.stdout.strip().split(":")[-1]
+                    if iface_name == interface:
+                        candidate_uuids.append(uuid)
+                except:
+                    pass
+        
+        # Use active connection if found, otherwise use first candidate
+        target_uuid = active_uuid or (candidate_uuids[0] if candidate_uuids else None)
+        
+        dhcp = False
+        if target_uuid:
+            # Check ipv4.method
+            method_res = subprocess.run(
+                [NMCLI, "-t", "-f", "ipv4.method", "con", "show", target_uuid],
+                capture_output=True,
+                text=True
+            )
+            method = method_res.stdout.strip().split(":")[-1]
+            dhcp = (method == "auto")
+            return target_uuid, dhcp
+            
+    except Exception as e:
+        print(f"Error getting NM info: {e}")
+    
+    return None, False
 
-# ... existing imports ...
 
 def get_interfaces() -> List[NetworkInterface]:
-    """Get list of network interfaces using psutil."""
+    """Get list of network interfaces using psutil and nmcli."""
     interfaces = []
     
     try:
         addrs = psutil.net_if_addrs()
         stats = psutil.net_if_stats()
         
-        # Get default gateway (Linux specific)
+        # Get default gateway
         default_gateway = None
         try:
             with open("/proc/net/route") as f:
@@ -90,13 +163,20 @@ def get_interfaces() -> List[NetworkInterface]:
                     ip_address = addr.address
                     netmask = addr.netmask
             
+            # Get persistent config status (DHCP vs Static)
+            _, dhcp_status = get_connection_info(iface_name)
+            
+            # If no IP yet but is_up, it might be trying to DHCP
+            # If we detected DHCP from NM, trust that.
+            
             interfaces.append(NetworkInterface(
                 name=iface_name,
                 mac_address=mac_address,
                 ip_address=ip_address,
                 netmask=netmask,
-                gateway=default_gateway, # Simplified: assuming same gateway for all for now
-                is_up=is_up
+                gateway=default_gateway, 
+                is_up=is_up,
+                dhcp=dhcp_status
             ))
         
     except Exception as e:
@@ -121,7 +201,6 @@ def test_connectivity(host: str = "8.8.8.8", timeout: int = 5) -> ConnectivityRe
         latency = (time.time() - start_time) * 1000  # Convert to ms
         
         if result.returncode == 0:
-            # Try to extract actual latency from ping output
             match = re.search(r"time=(\d+\.?\d*)\s*ms", result.stdout)
             if match:
                 latency = float(match.group(1))
@@ -187,14 +266,7 @@ def update_interface(
 ):
     """
     Update network interface configuration.
-    
-    WARNING: This can cause network connectivity loss if misconfigured.
     """
-    # Define absolute paths for tools
-    NMCLI = "/usr/bin/nmcli"
-    DHCLIENT = "/usr/sbin/dhclient"
-    IP = "/usr/sbin/ip"
-
     try:
         # Verify interface exists
         interfaces = get_interfaces()
@@ -203,40 +275,39 @@ def update_interface(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Interface '{interface}' not found"
             )
-        
-        if config.dhcp:
-            # Configure for DHCP using nmcli
-            try:
-                # Try to modify existing connection first
-                subprocess.run(
-                    [NMCLI, "con", "mod", interface, "ipv4.method", "auto"],
-                    check=True,
-                    capture_output=True
-                )
-            except subprocess.CalledProcessError:
-                # If modification fails (e.g. connection doesn't exist), try adding a new one
-                try:
-                    subprocess.run(
-                        [NMCLI, "con", "add", "type", "ethernet", "ifname", interface, "con-name", interface, "ipv4.method", "auto"],
-                        check=True,
-                        capture_output=True
-                    )
-                except subprocess.CalledProcessError:
-                    # If nmcli fails completely, fall back to dhclient
-                    subprocess.run([DHCLIENT, interface], check=True, capture_output=True)
-                    
-            # Bring up the connection if we used nmcli (or even if we didn't, it doesn't hurt to try)
-            try:
-                subprocess.run(
-                    [NMCLI, "con", "up", interface],
-                    check=True,
-                    capture_output=True
-                )
-            except subprocess.CalledProcessError:
-                pass
 
+        # Get existing connection UUID
+        uuid, _ = get_connection_info(interface)
+        
+        # If no connection exists, create a new one
+        if not uuid:
+            try:
+                subprocess.run(
+                    [NMCLI, "con", "add", "type", "ethernet", "ifname", interface, "con-name", interface],
+                    check=True,
+                    capture_output=True
+                )
+                uuid, _ = get_connection_info(interface) # Refresh
+            except subprocess.CalledProcessError as e:
+                raise HTTPException(status_code=500, detail=f"Failed to create connection: {e.stderr}")
+
+        if not uuid:
+             raise HTTPException(status_code=500, detail="Could not determine connection UUID")
+
+        # Modify the specific connection by UUID to avoid ambiguity
+        if config.dhcp:
+            subprocess.run(
+                [NMCLI, "con", "mod", uuid, "ipv4.method", "auto"],
+                check=True,
+                capture_output=True
+            )
+            # Clear any static IP settings just in case
+            subprocess.run(
+                [NMCLI, "con", "mod", uuid, "ipv4.addresses", "", "ipv4.gateway", ""],
+                check=False, # Might fail if already empty, that's fine
+                capture_output=True
+            )
         else:
-            # Configure static IP
             if not config.ip_address or not config.netmask:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -248,79 +319,43 @@ def update_interface(
             binary = "".join([bin(int(x))[2:].zfill(8) for x in netmask_parts])
             cidr = binary.count("1")
             
-            try:
-                # Try to modify existing connection
-                subprocess.run(
-                    [NMCLI, "con", "mod", interface, "ipv4.method", "manual"],
-                    check=True,
-                    capture_output=True
-                )
-                subprocess.run(
-                    [NMCLI, "con", "mod", interface, "ipv4.addresses", f"{config.ip_address}/{cidr}"],
-                    check=True,
-                    capture_output=True
-                )
-                
-                if config.gateway:
-                    subprocess.run(
-                        [NMCLI, "con", "mod", interface, "ipv4.gateway", config.gateway],
-                        check=True,
-                        capture_output=True
-                    )
-                
-                subprocess.run(
-                    [NMCLI, "con", "up", interface],
-                    check=True,
-                    capture_output=True
-                )
-            except subprocess.CalledProcessError:
-                # If modification fails, try adding new connection
-                try:
-                    cmd = [NMCLI, "con", "add", "type", "ethernet", "ifname", interface, "con-name", interface, "ipv4.method", "manual", "ipv4.addresses", f"{config.ip_address}/{cidr}"]
-                    if config.gateway:
-                        cmd.extend(["ipv4.gateway", config.gateway])
-                    
-                    subprocess.run(cmd, check=True, capture_output=True)
-                    
-                    subprocess.run(
-                        [NMCLI, "con", "up", interface],
-                        check=True,
-                        capture_output=True
-                    )
-                except subprocess.CalledProcessError:
-                    # Fallback: use ip command
-                    subprocess.run(
-                        [IP, "addr", "flush", "dev", interface],
-                        check=True,
-                        capture_output=True
-                    )
-                    subprocess.run(
-                        [IP, "addr", "add", f"{config.ip_address}/{cidr}", "dev", interface],
-                        check=True,
-                        capture_output=True
-                    )
-                    subprocess.run(
-                        [IP, "link", "set", interface, "up"],
-                        check=True,
-                        capture_output=True
-                    )
-                    
-                    if config.gateway:
-                        subprocess.run(
-                            [IP, "route", "add", "default", "via", config.gateway],
-                            check=True,
-                            capture_output=True
-                        )
-        
-        # Ensure interface is brought up regardless of method used
-        try:
             subprocess.run(
-                [IP, "link", "set", interface, "up"],
+                [NMCLI, "con", "mod", uuid, "ipv4.method", "manual"],
                 check=True,
                 capture_output=True
             )
-        except subprocess.CalledProcessError:
-            pass # Ignore if already up or failed, as previous commands should have handled it
+            subprocess.run(
+                [NMCLI, "con", "mod", uuid, "ipv4.addresses", f"{config.ip_address}/{cidr}"],
+                check=True,
+                capture_output=True
+            )
+            
+            if config.gateway:
+                subprocess.run(
+                    [NMCLI, "con", "mod", uuid, "ipv4.gateway", config.gateway],
+                    check=True,
+                    capture_output=True
+                )
+            else:
+                # Remove gateway if not provided
+                subprocess.run(
+                    [NMCLI, "con", "mod", uuid, "ipv4.gateway", ""],
+                    check=False,
+                    capture_output=True
+                )
+
+        # Apply changes
+        subprocess.run(
+            [NMCLI, "con", "up", uuid],
+            check=True,
+            capture_output=True
+        )
+        
+        # Ensure interface is up at link level too
+        try:
+            subprocess.run([IP_CMD, "link", "set", interface, "up"], check=True, capture_output=True)
+        except:
+            pass
 
         return {
             "success": True,
@@ -342,8 +377,9 @@ def update_interface(
 
 @router.get("/connectivity/test", response_model=ConnectivityResponse)
 def test_internet_connectivity(
-    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    """Test internet connectivity by pinging 8.8.8.8."""
+    return test_connectivity()
     """Test internet connectivity by pinging 8.8.8.8."""
     return test_connectivity()
