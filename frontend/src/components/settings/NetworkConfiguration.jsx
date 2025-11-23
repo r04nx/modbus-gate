@@ -28,7 +28,7 @@ const NetworkConfiguration = () => {
             if (res.data.length > 0) {
                 setSelectedInterface(res.data[0].name);
                 setConfig({
-                    dhcp: !res.data[0].ip_address,
+                    dhcp: res.data[0].dhcp || false,
                     ip_address: res.data[0].ip_address || '',
                     netmask: res.data[0].netmask || '',
                     gateway: res.data[0].gateway || ''
@@ -53,7 +53,7 @@ const NetworkConfiguration = () => {
         if (iface) {
             setSelectedInterface(ifaceName);
             setConfig({
-                dhcp: !iface.ip_address,
+                dhcp: iface.dhcp || false,
                 ip_address: iface.ip_address || '',
                 netmask: iface.netmask || '',
                 gateway: iface.gateway || ''

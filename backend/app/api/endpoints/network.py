@@ -278,6 +278,7 @@ def update_interface(
 
         # Get existing connection UUID
         uuid, _ = get_connection_info(interface)
+        print(f"[DEBUG] Interface: {interface}, UUID: {uuid}")
         
         # If no connection exists, create a new one
         if not uuid:
@@ -288,6 +289,7 @@ def update_interface(
                     capture_output=True
                 )
                 uuid, _ = get_connection_info(interface) # Refresh
+                print(f"[DEBUG] Created new connection, UUID: {uuid}")
             except subprocess.CalledProcessError as e:
                 raise HTTPException(status_code=500, detail=f"Failed to create connection: {e.stderr}")
 
@@ -296,6 +298,7 @@ def update_interface(
 
         # Modify the specific connection by UUID to avoid ambiguity
         if config.dhcp:
+            print(f"[DEBUG] Configuring {uuid} for DHCP")
             subprocess.run(
                 [NMCLI, "con", "mod", uuid, "ipv4.method", "auto"],
                 check=True,
@@ -319,6 +322,7 @@ def update_interface(
             binary = "".join([bin(int(x))[2:].zfill(8) for x in netmask_parts])
             cidr = binary.count("1")
             
+            print(f"[DEBUG] Configuring {uuid} for static IP {config.ip_address}/{cidr}")
             subprocess.run(
                 [NMCLI, "con", "mod", uuid, "ipv4.method", "manual"],
                 check=True,
@@ -345,11 +349,15 @@ def update_interface(
                 )
 
         # Apply changes
-        subprocess.run(
+        print(f"[DEBUG] Bringing up connection {uuid}")
+        result = subprocess.run(
             [NMCLI, "con", "up", uuid],
-            check=True,
-            capture_output=True
+            capture_output=True,
+            text=True
         )
+        if result.returncode != 0:
+            print(f"[ERROR] nmcli con up failed: {result.stderr}")
+            raise subprocess.CalledProcessError(result.returncode, result.args, result.stdout, result.stderr)
         
         # Ensure interface is up at link level too
         try:
@@ -364,9 +372,11 @@ def update_interface(
         }
         
     except subprocess.CalledProcessError as e:
+        error_msg = e.stderr if e.stderr else str(e)
+        print(f"[ERROR] subprocess failed: {error_msg}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to configure interface: {e.stderr.decode() if e.stderr else str(e)}"
+            detail=f"Failed to configure interface: {error_msg}"
         )
     except Exception as e:
         raise HTTPException(
