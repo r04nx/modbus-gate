@@ -274,12 +274,12 @@ class UpdateSettingsUpdate(BaseModel):
 
 class RepositoryInfoResponse(BaseModel):
     available: bool
-    current_branch: Optional[str]
-    current_commit: Optional[str]
-    remote_url: Optional[str]
-    has_uncommitted_changes: Optional[bool]
-    setup_script_exists: Optional[bool]
-    message: Optional[str]
+    current_branch: Optional[str] = None
+    current_commit: Optional[str] = None
+    remote_url: Optional[str] = None
+    has_uncommitted_changes: Optional[bool] = None
+    setup_script_exists: Optional[bool] = None
+    message: Optional[str] = None
 
 
 class UpdateCheckResponse(BaseModel):
