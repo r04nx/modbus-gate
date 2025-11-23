@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getTags, createTag, updateTag, deleteTag, getTagValues, exportTags, importTags, writeTag } from '../services/api';
 import TagForm from '../components/TagForm';
+import SearchBar from '../components/common/SearchBar';
 import { Plus, Tag as TagIcon, Activity, Hash, Filter, RefreshCw, Download, Upload, Edit2, Send } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -12,6 +13,7 @@ const Tags = () => {
     const [values, setValues] = useState({});
     const [showForm, setShowForm] = useState(false);
     const [filter, setFilter] = useState('ALL');
+    const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(true);
 
     // Write Modal State
@@ -172,7 +174,19 @@ const Tags = () => {
         allTags = allTags.filter(t => t.device_id == deviceIdFilter);
     }
 
-    const filteredTags = filter === 'ALL' ? allTags : allTags.filter(t => t.type === filter);
+    let filteredTags = filter === 'ALL' ? allTags : allTags.filter(t => t.type === filter);
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase();
+        filteredTags = filteredTags.filter(tag =>
+            tag.name?.toLowerCase().includes(query) ||
+            tag.tag_id?.toLowerCase().includes(query) ||
+            tag.address?.toLowerCase().includes(query) ||
+            tag.description?.toLowerCase().includes(query) ||
+            tag.device_id?.toString().includes(query)
+        );
+    }
 
     return (
         <div className="space-y-8">
@@ -221,6 +235,8 @@ const Tags = () => {
                             onClick={() => {
                                 setEditingTag(null);
                                 setShowForm(true);
+                                // Auto-select tag type based on current filter
+                                // This will be picked up by TagForm through editTag prop
                             }}
                             className="flex items-center gap-2 bg-primary hover:bg-primaryHover text-white px-6 py-3 rounded-xl font-medium transition-all shadow-lg shadow-primary/20 hover:shadow-primary/40 hover:-translate-y-0.5"
                         >
@@ -245,6 +261,15 @@ const Tags = () => {
                     </button>
                 </div>
             )}
+
+            {/* Search Bar */}
+            <SearchBar
+                value={searchQuery}
+                onChange={setSearchQuery}
+                onClear={() => setSearchQuery('')}
+                placeholder="Search tags by name, ID, address, or device..."
+                className="animate-in fade-in slide-in-from-top-2 duration-300"
+            />
 
             <div className="bg-surface/50 backdrop-blur-md border border-surfaceHighlight rounded-2xl overflow-hidden shadow-card">
                 <div className="overflow-x-auto">
@@ -420,6 +445,7 @@ const Tags = () => {
                 }}
                 onSubmit={editingTag ? handleUpdate : handleCreate}
                 editTag={editingTag}
+                initialType={!editingTag && filter !== 'ALL' && filter !== 'SYSTEM' ? filter : null}
             />}
 
             {/* Write Value Modal */}

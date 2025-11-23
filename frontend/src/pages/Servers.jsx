@@ -153,7 +153,7 @@ export default function Servers() {
 
                     mapping = { ...mapping, register_type: regType, address, unit_id: 1 };
                 } else if (activeTab === 'OPC_UA_SERVER') {
-                    mapping = { ...mapping, node_name: tag.tag_id };
+                    mapping = { ...mapping, node_name: tag.name || tag.tag_id };
                 } else if (activeTab === 'IEC104_SERVER') {
                     const ioa = getNextIOA(newMappings);
                     let typeId = 'M_ME_NC_1'; // Float
@@ -454,7 +454,22 @@ export default function Servers() {
                                             className="w-20 bg-transparent border border-surfaceHighlight/30 rounded px-2 py-1 text-text-secondary focus:text-white focus:border-primary outline-none"
                                         />
                                     </td>
-                                    <td className="px-6 py-3 text-text-secondary">{mapping.data_type}</td>
+                                    <td className="px-6 py-3">
+                                        <select
+                                            value={mapping.data_type}
+                                            onChange={(e) => updateMapping(idx, 'data_type', e.target.value)}
+                                            className="bg-transparent border border-surfaceHighlight/30 rounded px-2 py-1 text-text-secondary focus:text-white focus:border-primary outline-none"
+                                        >
+                                            <option value="INT16">INT16</option>
+                                            <option value="UINT16">UINT16</option>
+                                            <option value="INT32">INT32</option>
+                                            <option value="UINT32">UINT32</option>
+                                            <option value="FLOAT32">FLOAT32</option>
+                                            <option value="FLOAT64">FLOAT64</option>
+                                            <option value="BOOLEAN">BOOLEAN</option>
+                                            <option value="STRING">STRING</option>
+                                        </select>
+                                    </td>
                                     <td className="px-6 py-3">
                                         <button onClick={() => removeMapping(idx)} className="text-text-muted hover:text-warning transition-colors">
                                             <Trash2 size={16} />
@@ -519,6 +534,7 @@ export default function Servers() {
                             <tr>
                                 <th className="px-6 py-3">Tag ID</th>
                                 <th className="px-6 py-3">Node Name</th>
+                                <th className="px-6 py-3">Node ID</th>
                                 <th className="px-6 py-3">Data Type</th>
                                 <th className="px-6 py-3">Actions</th>
                             </tr>
@@ -534,7 +550,25 @@ export default function Servers() {
                                             className="w-full bg-transparent border border-surfaceHighlight/30 rounded px-2 py-1 text-text-secondary focus:text-white focus:border-primary outline-none"
                                         />
                                     </td>
-                                    <td className="px-6 py-3 text-text-secondary">{mapping.data_type}</td>
+                                    <td className="px-6 py-3 text-text-muted font-mono text-xs">
+                                        ns=2;s={mapping.node_name || mapping.tag_id}
+                                    </td>
+                                    <td className="px-6 py-3">
+                                        <select
+                                            value={mapping.data_type}
+                                            onChange={(e) => updateMapping(idx, 'data_type', e.target.value)}
+                                            className="bg-transparent border border-surfaceHighlight/30 rounded px-2 py-1 text-text-secondary focus:text-white focus:border-primary outline-none"
+                                        >
+                                            <option value="INT16">INT16</option>
+                                            <option value="UINT16">UINT16</option>
+                                            <option value="INT32">INT32</option>
+                                            <option value="UINT32">UINT32</option>
+                                            <option value="FLOAT32">FLOAT32</option>
+                                            <option value="FLOAT64">FLOAT64</option>
+                                            <option value="BOOLEAN">BOOLEAN</option>
+                                            <option value="STRING">STRING</option>
+                                        </select>
+                                    </td>
                                     <td className="px-6 py-3">
                                         <button onClick={() => removeMapping(idx)} className="text-text-muted hover:text-warning transition-colors">
                                             <Trash2 size={16} />

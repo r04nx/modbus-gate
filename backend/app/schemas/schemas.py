@@ -41,6 +41,8 @@ class TagBase(BaseModel):
     initial_value: Optional[str] = None
     calculation_formula: Optional[str] = None
     variable_mappings: Optional[Dict[str, str]] = None  # {"A": "tag_id_1", "B": "tag_id_2"}
+    fallback_type: str = 'last_success'  # 'last_success' or 'default'
+    fallback_value: Optional[str] = None
     enabled: bool = True
 
 class TagCreate(TagBase):
@@ -58,6 +60,8 @@ class TagUpdate(BaseModel):
     initial_value: Optional[str] = None
     calculation_formula: Optional[str] = None
     variable_mappings: Optional[Dict[str, str]] = None
+    fallback_type: Optional[str] = None
+    fallback_value: Optional[str] = None
     enabled: Optional[bool] = None
 
 

@@ -8,7 +8,7 @@ import logging
 from app.core.log_handler import memory_handler
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 # Add memory handler to root logger

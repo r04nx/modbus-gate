@@ -9,6 +9,9 @@ from asyncua import Client as OpcUaClient
 from pysnmp.hlapi.asyncio import SnmpEngine, CommunityData, UdpTransportTarget, ContextData, ObjectType, ObjectIdentity, getCmd
 import c104
 
+# Suppress verbose asyncua logging
+logging.getLogger('asyncua').setLevel(logging.WARNING)
+
 class PollingEngine:
     def __init__(self):
         self.running = False
@@ -190,32 +193,32 @@ class PollingEngine:
 
     async def _poll_iec104(self, device: models.Device):
         # IEC104 is usually event-driven, but here we implement a simple poll (interrogation)
-        # Note: Creating a client every second is inefficient. 
-        # In a real robust system, we would maintain persistent connections.
-        # For this implementation, we will try to connect, interrogate, and read.
         
         params = device.connection_params
         host = params.get("host", "127.0.0.1")
         port = params.get("port", 2404)
-        common_address = params.get("common_address", 1)
-
-        # We need a way to capture callbacks. 
-        # Since c104 is C++ binding, we define a callback closure or class method?
-        # c104 python bindings usually take a function.
+        # common_address is used in add_station, not add_connection usually, 
+        # but for client we might not need to specify it for connection, 
+        # it's part of the ASDU address in the packet.
         
         received_data = {}
 
-        def on_step(point: c104.Point, previous_info: c104.Information, message: c104.Message) -> bool:
+        def on_receive(point: c104.Point, previous_info: c104.Information, message: c104.IncomingMessage) -> bool:
             # Map IO address to value
-            # point.io_address is the address
-            # point.value is the value
             received_data[str(point.io_address)] = point.value
             return True
 
+        def on_new_point(client, station, io_address, point_type):
+            # We need to add the point to the station to interact with it
+            # and register the callback
+            point = station.add_point(io_address, point_type)
+            point.on_receive(on_receive)
+
         try:
             client = c104.Client()
-            connection = client.add_connection(ip=host, port=port, common_address=common_address)
-            connection.set_on_step(on_step)
+            client.on_new_point(on_new_point)
+            
+            connection = client.add_connection(ip=host, port=port)
             
             client.start()
             
@@ -223,7 +226,7 @@ class PollingEngine:
             connection.send_interrogation_command()
             
             # Wait a bit for responses
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1.0)
             
             # Update store
             for tag in device.tags:
@@ -231,12 +234,7 @@ class PollingEngine:
                     if tag.address in received_data:
                         await self.store.update_tag(tag.tag_id, received_data[tag.address])
             
-            # Stop client (this might be slow)
-            # client.stop() # c104 might not have stop() exposed or it's automatic on GC?
-            # Based on c104 examples, we just let it go out of scope? 
-            # Actually, if we don't stop it, threads might pile up.
-            # c104.Client has no stop() in some versions.
-            # Assuming it cleans up.
+            # Client cleanup is handled by garbage collection/destructor in python bindings usually
             
         except Exception as e:
             logging.error(f"Error polling IEC104 device {device.name}: {e}")

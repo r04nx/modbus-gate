@@ -41,6 +41,11 @@ class Tag(Base):
     calculation_formula = Column(String, nullable=True) # For Calculation tags
     variable_mappings = Column(JSON, nullable=True) # Variable to tag_id mappings for calculations
 
+    # Fallback mechanism
+    fallback_type = Column(String, default='last_success') # 'last_success' or 'default'
+    fallback_value = Column(String, nullable=True) # Default value when fallback_type is 'default'
+    last_success_value = Column(String, nullable=True) # Last successfully polled value
+
     enabled = Column(Boolean, default=True)
 
 class ServerConfig(Base):

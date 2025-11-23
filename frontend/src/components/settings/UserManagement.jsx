@@ -11,7 +11,10 @@ const UserManagement = () => {
     const [formData, setFormData] = useState({ username: '', password: '', role: 'root' });
     const [loading, setLoading] = useState(false);
 
-    const API_BASE = 'http://localhost:8000/api/v1';
+    // Use dynamic API base URL instead of hardcoded localhost
+    const API_HOST = window.location.hostname;
+    const API_PORT = '8000';
+    const API_BASE = `http://${API_HOST}:${API_PORT}/api/v1`;
     const getAuthHeader = () => ({ Authorization: `Basic ${btoa('admin:admin')}` });
 
     useEffect(() => {

@@ -6,9 +6,9 @@ import VariableMapper from './VariableMapper';
 import OperationsLibrary from './OperationsLibrary';
 import FormulaBuilder from './FormulaBuilder';
 
-const TagForm = ({ onClose, onSubmit, editTag = null }) => {
+const TagForm = ({ onClose, onSubmit, editTag = null, initialType = null }) => {
     const isEditMode = !!editTag;
-    const [type, setType] = useState(editTag?.type || 'IO');
+    const [type, setType] = useState(editTag?.type || initialType || 'IO');
     const [devices, setDevices] = useState([]);
     const [tags, setTags] = useState([]);
     const [formData, setFormData] = useState({
@@ -21,7 +21,9 @@ const TagForm = ({ onClose, onSubmit, editTag = null }) => {
         params: editTag?.params || {},
         initial_value: editTag?.initial_value || '',
         calculation_formula: editTag?.calculation_formula || '',
-        variable_mappings: editTag?.variable_mappings || {}
+        variable_mappings: editTag?.variable_mappings || {},
+        fallback_type: editTag?.fallback_type || 'last_success',
+        fallback_value: editTag?.fallback_value || ''
     });
 
     const [selectedDevice, setSelectedDevice] = useState(null);
@@ -454,6 +456,39 @@ const TagForm = ({ onClose, onSubmit, editTag = null }) => {
 
                             {/* Dynamic Protocol Fields */}
                             {renderProtocolFields()}
+
+                            {/* Fallback Mechanism */}
+                            <div className="border-t border-slate-700 pt-4 mt-4">
+                                <h4 className="text-sm font-semibold text-slate-200 mb-3">Fallback Strategy</h4>
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-200 mb-1">On Connectivity Failure</label>
+                                        <select
+                                            name="fallback_type"
+                                            value={formData.fallback_type}
+                                            onChange={handleChange}
+                                            className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                                        >
+                                            <option value="last_success">Use Last Success Value</option>
+                                            <option value="default">Use Default Value</option>
+                                        </select>
+                                    </div>
+
+                                    {formData.fallback_type === 'default' && (
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-200 mb-1">Default Value</label>
+                                            <input
+                                                name="fallback_value"
+                                                value={formData.fallback_value}
+                                                onChange={handleChange}
+                                                placeholder="Enter default value"
+                                                className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                                            />
+                                            <p className="text-xs text-slate-400 mt-1">This value will be used when the device is unreachable</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         </>
                     )}
 

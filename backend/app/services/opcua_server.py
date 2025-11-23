@@ -3,6 +3,9 @@ import logging
 from asyncua import Server, ua
 from app.core.store import GlobalDataStore
 
+# Enable verbose asyncua logging for debugging
+logging.getLogger('asyncua').setLevel(logging.DEBUG)
+
 class OPCUAServerService:
     def __init__(self):
         self.port = 4840
@@ -151,14 +154,18 @@ class OPCUAServerService:
                             # Determine type
                             initial_val = val if val is not None else 0.0
                             
-                            # Create variable
+                            # Create variable with STRING NodeId (not numeric)
+                            # This ensures the node is accessible via ns=2;s=node_name
+                            from asyncua import ua
+                            node_id = ua.NodeId(node_name, self.namespace_idx, ua.NodeIdType.String)
+                            
                             # Note: In a real restart scenario, self.tags_folder needs to be re-acquired.
                             # The _run_server method sets self.tags_folder.
                             if hasattr(self, 'tags_folder') and self.tags_folder:
-                                node = await self.tags_folder.add_variable(self.namespace_idx, node_name, initial_val)
+                                node = await self.tags_folder.add_variable(node_id, node_name, initial_val)
                                 await node.set_writable()
                                 self.mapped_nodes[tag_id] = node
-                                logging.info(f"Created OPC UA node for {tag_id} as {node_name}")
+                                logging.info(f"Created OPC UA node for {tag_id} as {node_name} with NodeId ns={self.namespace_idx};s={node_name}")
                         except Exception as e:
                             logging.error(f"Error creating node for {tag_id}: {e}")
                             continue

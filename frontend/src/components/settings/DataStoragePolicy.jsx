@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { HardDrive, Database } from 'lucide-react';
+import { HardDrive, Database, Download, Trash2, FileText } from 'lucide-react';
 import axios from 'axios';
 
 const DataStoragePolicy = () => {
@@ -12,14 +12,19 @@ const DataStoragePolicy = () => {
         northbound_interface: 'MQTT'
     });
     const [usage, setUsage] = useState(null);
+    const [bufferedFiles, setBufferedFiles] = useState([]);
     const [loading, setLoading] = useState(false);
 
-    const API_BASE = 'http://localhost:8000/api/v1';
+    // Use dynamic API base URL instead of hardcoded localhost
+    const API_HOST = window.location.hostname;
+    const API_PORT = '8000';
+    const API_BASE = `http://${API_HOST}:${API_PORT}/api/v1`;
     const getAuthHeader = () => ({ Authorization: `Basic ${btoa('admin:admin')}` });
 
     useEffect(() => {
         fetchPolicy();
         fetchUsage();
+        fetchBufferedFiles();
     }, []);
 
     const fetchPolicy = async () => {
@@ -58,6 +63,49 @@ const DataStoragePolicy = () => {
         const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    };
+
+    const fetchBufferedFiles = async () => {
+        try {
+            const res = await axios.get(`${API_BASE}/storage/buffered-files`, { headers: getAuthHeader() });
+            setBufferedFiles(res.data);
+        } catch (error) {
+            console.error('Failed to fetch buffered files:', error);
+        }
+    };
+
+    const handleDownloadFile = async (filename) => {
+        try {
+            const response = await axios.get(
+                `${API_BASE}/storage/buffered-files/${filename}`,
+                {
+                    headers: getAuthHeader(),
+                    responseType: 'blob'
+                }
+            );
+
+            // Create download link
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', filename);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        } catch (error) {
+            alert(`Failed to download file: ${error.response?.data?.detail || error.message}`);
+        }
+    };
+
+    const handleDeleteFile = async (filename) => {
+        if (!confirm(`Delete buffered file "${filename}"?`)) return;
+
+        try {
+            await axios.delete(`${API_BASE}/storage/buffered-files/${filename}`, { headers: getAuthHeader() });
+            fetchBufferedFiles(); // Refresh list
+        } catch (error) {
+            alert(`Failed to delete file: ${error.response?.data?.detail || error.message}`);
+        }
     };
 
     return (
@@ -200,6 +248,53 @@ const DataStoragePolicy = () => {
                         {loading ? 'Saving...' : 'Save Policy'}
                     </button>
                 </div>
+            </div>
+
+            {/* Buffered Data Files */}
+            <div className="bg-surfaceHighlight/10 rounded-2xl p-6 border border-surfaceHighlight/30">
+                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-orange-400" />
+                    Buffered Data Files
+                </h3>
+
+                {bufferedFiles.length === 0 ? (
+                    <p className="text-text-secondary text-center py-8">No buffered data files</p>
+                ) : (
+                    <div className="space-y-3">
+                        {bufferedFiles.map((file) => (
+                            <div
+                                key={file.filename}
+                                className="flex items-center justify-between bg-surfaceHighlight/5 rounded-xl p-4 border border-surfaceHighlight/20 hover:border-surfaceHighlight/40 transition-all"
+                            >
+                                <div className="flex-1">
+                                    <p className="text-white font-medium">{file.label}</p>
+                                    <p className="text-text-secondary text-sm mt-1">
+                                        {file.record_count} records • {file.size_mb} MB
+                                        {file.is_active && <span className="text-orange-400 ml-2">• ACTIVE</span>}
+                                    </p>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => handleDownloadFile(file.filename)}
+                                        className="p-2 bg-surfaceHighlight/20 hover:bg-surfaceHighlight/30 text-cyan-400 rounded-lg transition-all"
+                                        title="Download CSV"
+                                    >
+                                        <Download className="w-4 h-4" />
+                                    </button>
+                                    {!file.is_active && (
+                                        <button
+                                            onClick={() => handleDeleteFile(file.filename)}
+                                            className="p-2 bg-surfaceHighlight/20 hover:bg-red-500/20 text-text-muted hover:text-red-400 rounded-lg transition-all"
+                                            title="Delete File"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
         </div>
     );

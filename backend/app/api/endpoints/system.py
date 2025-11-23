@@ -258,59 +258,131 @@ def delete_ssh_key(
 
 
 # Update settings endpoints
-@router.get("/update", response_model=UpdateSettings)
+class UpdateSettingsResponse(BaseModel):
+    auto_update_enabled: bool
+    auto_update_branch: str
+    repo_url: str
+    last_update_check: Optional[str]
+    last_update_status: Optional[str]
+
+
+class UpdateSettingsUpdate(BaseModel):
+    auto_update_enabled: bool
+    auto_update_branch: str
+    repo_url: str
+
+
+class RepositoryInfoResponse(BaseModel):
+    available: bool
+    current_branch: Optional[str]
+    current_commit: Optional[str]
+    remote_url: Optional[str]
+    has_uncommitted_changes: Optional[bool]
+    setup_script_exists: Optional[bool]
+    message: Optional[str]
+
+
+class UpdateCheckResponse(BaseModel):
+    has_updates: bool
+    message: str
+
+
+class UpdateTriggerResponse(BaseModel):
+    success: bool
+    message: str
+
+
+@router.get("/update", response_model=UpdateSettingsResponse)
 def get_update_settings(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get system update settings."""
     auto_update = get_setting("auto_update_enabled", db, "false") == "true"
+    branch = get_setting("auto_update_branch", db, "production")
     repo_url = get_setting("update_repo_url", db, "https://github.com/yourusername/modbus-gate")
+    last_check = get_setting("last_update_check", db, "")
+    last_status = get_setting("last_update_status", db, "")
     
-    return UpdateSettings(
+    return UpdateSettingsResponse(
         auto_update_enabled=auto_update,
-        repo_url=repo_url
+        auto_update_branch=branch,
+        repo_url=repo_url,
+        last_update_check=last_check if last_check else None,
+        last_update_status=last_status if last_status else None
     )
 
 
-@router.put("/update", response_model=UpdateSettings)
+@router.put("/update", response_model=UpdateSettingsResponse)
 def update_update_settings(
-    settings: UpdateSettings,
+    settings: UpdateSettingsUpdate,
     current_user: User = Depends(get_current_superroot),
     db: Session = Depends(get_db)
 ):
     """Update system update settings (superroot only)."""
     set_setting("auto_update_enabled", "true" if settings.auto_update_enabled else "false", db)
+    set_setting("auto_update_branch", settings.auto_update_branch, db)
     set_setting("update_repo_url", settings.repo_url, db)
     
-    return settings
+    return UpdateSettingsResponse(
+        auto_update_enabled=settings.auto_update_enabled,
+        auto_update_branch=settings.auto_update_branch,
+        repo_url=settings.repo_url,
+        last_update_check=get_setting("last_update_check", db, ""),
+        last_update_status=get_setting("last_update_status", db, "")
+    )
 
 
-@router.post("/update/trigger")
-def trigger_update(
+@router.get("/update/repository-info", response_model=RepositoryInfoResponse)
+def get_repository_info(
+    current_user: User = Depends(get_current_user)
+):
+    """Get Git repository information."""
+    from ...services.auto_update_service import auto_update_service
+    
+    info = auto_update_service.get_repository_info()
+    return RepositoryInfoResponse(**info)
+
+
+@router.post("/update/check", response_model=UpdateCheckResponse)
+def check_for_updates(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Check if updates are available."""
+    from ...services.auto_update_service import auto_update_service
+    
+    branch = get_setting("auto_update_branch", db, "production")
+    has_updates, message = auto_update_service.check_for_updates(branch)
+    
+    # Update last check time
+    from datetime import datetime
+    set_setting("last_update_check", datetime.utcnow().isoformat(), db)
+    
+    return UpdateCheckResponse(
+        has_updates=has_updates,
+        message=message
+    )
+
+
+@router.post("/update/trigger", response_model=UpdateTriggerResponse)
+async def trigger_update(
     current_user: User = Depends(get_current_superroot),
     db: Session = Depends(get_db)
 ):
     """Trigger a manual system update (superroot only)."""
+    from ...services.auto_update_service import auto_update_service
+    
     try:
-        repo_url = get_setting("update_repo_url", db, "")
+        branch = get_setting("auto_update_branch", db, "production")
         
-        if not repo_url:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Repository URL not configured"
-            )
+        # Perform the update
+        success, message = auto_update_service.perform_update(branch, db)
         
-        # This is a placeholder - actual implementation would:
-        # 1. Clone/pull from the repository
-        # 2. Run update scripts
-        # 3. Restart services
-        
-        return {
-            "success": True,
-            "message": "Update triggered (not yet implemented)",
-            "repo_url": repo_url
-        }
+        return UpdateTriggerResponse(
+            success=success,
+            message=message
+        )
         
     except Exception as e:
         raise HTTPException(

@@ -18,5 +18,8 @@ class SystemSettings(Base):
             "hostname": "vistaiot-gateway",
             "ssh_enabled": "false",
             "auto_update_enabled": "false",
+            "auto_update_branch": "production",
             "update_repo_url": "https://github.com/yourusername/modbus-gate",
+            "last_update_check": "",
+            "last_update_status": "",
         }
