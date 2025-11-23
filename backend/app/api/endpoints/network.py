@@ -48,76 +48,56 @@ class ConnectivityResponse(BaseModel):
 
 
 # Helper functions
+import psutil
+
+# ... existing imports ...
+
 def get_interfaces() -> List[NetworkInterface]:
-    """Get list of network interfaces using ip command."""
+    """Get list of network interfaces using psutil."""
     interfaces = []
     
     try:
-        # Get interface names and status
-        result = subprocess.run(
-            ["ip", "-o", "link", "show"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
+        addrs = psutil.net_if_addrs()
+        stats = psutil.net_if_stats()
         
-        for line in result.stdout.strip().split("\n"):
-            # Parse: 2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> ...
-            match = re.match(r"\d+:\s+(\S+):\s+<([^>]+)>", line)
-            if match:
-                iface_name = match.group(1)
-                flags = match.group(2)
+        # Get default gateway (Linux specific)
+        default_gateway = None
+        try:
+            with open("/proc/net/route") as f:
+                for line in f:
+                    fields = line.strip().split()
+                    if fields[1] != '00000000' or not int(fields[3], 16) & 2:
+                        continue
+                    default_gateway = socket.inet_ntoa(bytes.fromhex(fields[2])[::-1])
+                    break
+        except:
+            pass
+
+        for iface_name, iface_addrs in addrs.items():
+            # Skip loopback
+            if iface_name == 'lo':
+                continue
                 
-                # Skip loopback
-                if iface_name == "lo":
-                    continue
-                
-                is_up = "UP" in flags
-                
-                # Get MAC address
-                mac_match = re.search(r"link/ether\s+([0-9a-f:]+)", line)
-                mac_address = mac_match.group(1) if mac_match else None
-                
-                # Get IP address
-                ip_result = subprocess.run(
-                    ["ip", "-o", "-4", "addr", "show", iface_name],
-                    capture_output=True,
-                    text=True
-                )
-                
-                ip_address = None
-                netmask = None
-                if ip_result.returncode == 0 and ip_result.stdout:
-                    # Parse: inet 192.168.1.100/24 ...
-                    ip_match = re.search(r"inet\s+(\d+\.\d+\.\d+\.\d+)/(\d+)", ip_result.stdout)
-                    if ip_match:
-                        ip_address = ip_match.group(1)
-                        cidr = int(ip_match.group(2))
-                        # Convert CIDR to netmask
-                        netmask = socket.inet_ntoa(
-                            (0xffffffff << (32 - cidr)).to_bytes(4, 'big')
-                        )
-                
-                # Get gateway (default route)
-                gateway = None
-                route_result = subprocess.run(
-                    ["ip", "route", "show", "default"],
-                    capture_output=True,
-                    text=True
-                )
-                if route_result.returncode == 0:
-                    gateway_match = re.search(r"default via\s+(\d+\.\d+\.\d+\.\d+)", route_result.stdout)
-                    if gateway_match:
-                        gateway = gateway_match.group(1)
-                
-                interfaces.append(NetworkInterface(
-                    name=iface_name,
-                    mac_address=mac_address,
-                    ip_address=ip_address,
-                    netmask=netmask,
-                    gateway=gateway,
-                    is_up=is_up
-                ))
+            is_up = stats[iface_name].isup if iface_name in stats else False
+            mac_address = None
+            ip_address = None
+            netmask = None
+            
+            for addr in iface_addrs:
+                if addr.family == socket.AF_PACKET:
+                    mac_address = addr.address
+                elif addr.family == socket.AF_INET:
+                    ip_address = addr.address
+                    netmask = addr.netmask
+            
+            interfaces.append(NetworkInterface(
+                name=iface_name,
+                mac_address=mac_address,
+                ip_address=ip_address,
+                netmask=netmask,
+                gateway=default_gateway, # Simplified: assuming same gateway for all for now
+                is_up=is_up
+            ))
         
     except Exception as e:
         print(f"Error getting interfaces: {e}")
