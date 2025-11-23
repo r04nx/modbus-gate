@@ -353,9 +353,10 @@ def update_interface(
             text=True
         )
         if result.returncode != 0:
-            # Check if it's a "no carrier" error (cable unplugged)
-            if "no carrier" in result.stderr.lower() or "unavailable" in result.stderr.lower():
-                print(f"[WARN] Connection created but not activated (no carrier on {interface})")
+            # Check if it's a "no carrier" or device unavailability error
+            error_lower = result.stderr.lower()
+            if any(phrase in error_lower for phrase in ["no carrier", "unavailable", "no suitable device", "not available on device"]):
+                print(f"[WARN] Connection created but not activated (device unavailable or no carrier on {interface})")
                 return {
                     "success": True,
                     "message": f"Interface '{interface}' configured successfully (will activate when cable is connected)",
