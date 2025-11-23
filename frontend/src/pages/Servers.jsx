@@ -53,6 +53,11 @@ export default function Servers() {
     ];
 
     useEffect(() => {
+        // Reset config to avoid showing stale data while loading
+        setConfig({
+            enabled: false,
+            config: { mappings: [], brokers: [], publications: [] }
+        });
         fetchConfig(activeTab);
         loadTags();
     }, [activeTab]);
@@ -78,6 +83,11 @@ export default function Servers() {
             setConfig(data);
         } catch (error) {
             console.error('Error fetching server config:', error);
+            // Ensure config is reset on error
+            setConfig({
+                enabled: false,
+                config: { mappings: [], brokers: [], publications: [] }
+            });
         } finally {
             setLoading(false);
         }
@@ -855,7 +865,7 @@ export default function Servers() {
                             </div>
                         ))}
                     </div>
-                    )}
+
                 </div>
             </div>
         );
