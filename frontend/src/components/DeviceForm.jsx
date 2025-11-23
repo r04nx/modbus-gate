@@ -70,31 +70,34 @@ const DeviceForm = ({ onClose, onSubmit, editDevice = null }) => {
     };
 
     return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-secondary p-6 rounded-xl w-full max-w-md border border-slate-700 max-h-[90vh] overflow-y-auto">
-                <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-xl font-bold text-white">{isEditMode ? 'Edit Device' : 'Add Device'}</h3>
-                    <button onClick={onClose} className="text-slate-400 hover:text-white"><X size={20} /></button>
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-surface/50 backdrop-blur-md border border-surfaceHighlight rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                <div className="sticky top-0 bg-surface/95 backdrop-blur-md border-b border-surfaceHighlight/50 p-6 flex justify-between items-center z-10">
+                    <h3 className="text-2xl font-bold text-white">{isEditMode ? 'Edit Device' : 'Add Device'}</h3>
+                    <button onClick={onClose} className="text-text-muted hover:text-white transition-colors p-2 hover:bg-surfaceHighlight/30 rounded-lg">
+                        <X size={20} />
+                    </button>
                 </div>
 
-                <form onSubmit={handleSubmit} className="space-y-4">
+                <form onSubmit={handleSubmit} className="p-6 space-y-6">
                     <div>
-                        <label className="block text-sm font-medium text-slate-400 mb-1">Device Name</label>
+                        <label className="block text-sm font-medium text-text-secondary mb-2">Device Name</label>
                         <input
                             name="name"
                             value={formData.name}
                             onChange={handleChange}
-                            className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
+                            placeholder="Enter device name..."
                             required
                         />
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-slate-400 mb-1">Type</label>
+                        <label className="block text-sm font-medium text-text-secondary mb-2">Protocol Type</label>
                         <select
                             value={type}
                             onChange={handleTypeChange}
-                            className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary transition-colors"
                         >
                             <option value="MODBUS_TCP">Modbus TCP</option>
                             <option value="MODBUS_RTU">Modbus RTU</option>
@@ -105,165 +108,186 @@ const DeviceForm = ({ onClose, onSubmit, editDevice = null }) => {
                     </div>
 
                     {/* Dynamic Fields */}
-                    {type === 'MODBUS_TCP' && (
-                        <>
-                            <div>
-                                <label className="block text-sm font-medium text-slate-400 mb-1">IP Address</label>
-                                <input
-                                    name="host"
-                                    value={formData.connection_params.host}
-                                    onChange={handleParamChange}
-                                    className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
-                                />
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-surfaceHighlight/10 rounded-xl p-4 border border-surfaceHighlight/30 space-y-4">
+                        <h4 className="text-sm font-bold text-white uppercase tracking-wider mb-3">Connection Parameters</h4>
+
+                        {type === 'MODBUS_TCP' && (
+                            <>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-400 mb-1">Port</label>
+                                    <label className="block text-sm font-medium text-text-secondary mb-2">IP Address</label>
+                                    <input
+                                        name="host"
+                                        value={formData.connection_params.host}
+                                        onChange={handleParamChange}
+                                        className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
+                                        placeholder="192.168.1.100"
+                                    />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-text-secondary mb-2">Port</label>
+                                        <input
+                                            name="port"
+                                            type="number"
+                                            value={formData.connection_params.port}
+                                            onChange={handleParamChange}
+                                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-text-secondary mb-2">Slave ID</label>
+                                        <input
+                                            name="slave_id"
+                                            type="number"
+                                            value={formData.connection_params.slave_id}
+                                            onChange={handleParamChange}
+                                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
+                                        />
+                                    </div>
+                                </div>
+                            </>
+                        )}
+
+                        {type === 'MODBUS_RTU' && (
+                            <>
+                                <div>
+                                    <label className="block text-sm font-medium text-text-secondary mb-2">Serial Port</label>
                                     <input
                                         name="port"
-                                        type="number"
                                         value={formData.connection_params.port}
                                         onChange={handleParamChange}
-                                        className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                                        className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
+                                        placeholder="/dev/ttyUSB0"
                                     />
                                 </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-400 mb-1">Slave ID</label>
-                                    <input
-                                        name="slave_id"
-                                        type="number"
-                                        value={formData.connection_params.slave_id}
-                                        onChange={handleParamChange}
-                                        className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
-                                    />
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-text-secondary mb-2">Baudrate</label>
+                                        <input
+                                            name="baudrate"
+                                            type="number"
+                                            value={formData.connection_params.baudrate}
+                                            onChange={handleParamChange}
+                                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-text-secondary mb-2">Slave ID</label>
+                                        <input
+                                            name="slave_id"
+                                            type="number"
+                                            value={formData.connection_params.slave_id}
+                                            onChange={handleParamChange}
+                                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
+                                        />
+                                    </div>
                                 </div>
-                            </div>
-                        </>
-                    )}
+                            </>
+                        )}
 
-                    {type === 'MODBUS_RTU' && (
-                        <>
+                        {type === 'OPC_UA' && (
                             <div>
-                                <label className="block text-sm font-medium text-slate-400 mb-1">Serial Port</label>
+                                <label className="block text-sm font-medium text-text-secondary mb-2">Endpoint URL</label>
                                 <input
-                                    name="port"
-                                    value={formData.connection_params.port}
+                                    name="url"
+                                    value={formData.connection_params.url}
                                     onChange={handleParamChange}
-                                    className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                                    placeholder="opc.tcp://localhost:4840"
+                                    className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
                                 />
                             </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-400 mb-1">Baudrate</label>
-                                    <input
-                                        name="baudrate"
-                                        type="number"
-                                        value={formData.connection_params.baudrate}
-                                        onChange={handleParamChange}
-                                        className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-400 mb-1">Slave ID</label>
-                                    <input
-                                        name="slave_id"
-                                        type="number"
-                                        value={formData.connection_params.slave_id}
-                                        onChange={handleParamChange}
-                                        className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
-                                    />
-                                </div>
-                            </div>
-                        </>
-                    )}
+                        )}
 
-                    {type === 'OPC_UA' && (
-                        <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">Endpoint URL</label>
-                            <input
-                                name="url"
-                                value={formData.connection_params.url}
-                                onChange={handleParamChange}
-                                placeholder="opc.tcp://localhost:4840"
-                                className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
-                            />
-                        </div>
-                    )}
+                        {type === 'SNMP' && (
+                            <>
+                                <div>
+                                    <label className="block text-sm font-medium text-text-secondary mb-2">Host</label>
+                                    <input
+                                        name="host"
+                                        value={formData.connection_params.host}
+                                        onChange={handleParamChange}
+                                        className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
+                                        placeholder="192.168.1.100"
+                                    />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-text-secondary mb-2">Port</label>
+                                        <input
+                                            name="port"
+                                            type="number"
+                                            value={formData.connection_params.port}
+                                            onChange={handleParamChange}
+                                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-text-secondary mb-2">Community</label>
+                                        <input
+                                            name="community"
+                                            value={formData.connection_params.community}
+                                            onChange={handleParamChange}
+                                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
+                                            placeholder="public"
+                                        />
+                                    </div>
+                                </div>
+                            </>
+                        )}
 
-                    {type === 'SNMP' && (
-                        <>
-                            <div>
-                                <label className="block text-sm font-medium text-slate-400 mb-1">Host</label>
-                                <input
-                                    name="host"
-                                    value={formData.connection_params.host}
-                                    onChange={handleParamChange}
-                                    className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
-                                />
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
+                        {type === 'IEC104' && (
+                            <>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-400 mb-1">Port</label>
+                                    <label className="block text-sm font-medium text-text-secondary mb-2">Host</label>
                                     <input
-                                        name="port"
-                                        type="number"
-                                        value={formData.connection_params.port}
+                                        name="host"
+                                        value={formData.connection_params.host}
                                         onChange={handleParamChange}
-                                        className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                                        className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
+                                        placeholder="192.168.1.100"
                                     />
                                 </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-400 mb-1">Community</label>
-                                    <input
-                                        name="community"
-                                        value={formData.connection_params.community}
-                                        onChange={handleParamChange}
-                                        className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
-                                    />
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-text-secondary mb-2">Port</label>
+                                        <input
+                                            name="port"
+                                            type="number"
+                                            value={formData.connection_params.port}
+                                            onChange={handleParamChange}
+                                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-text-secondary mb-2">Common Address</label>
+                                        <input
+                                            name="common_address"
+                                            type="number"
+                                            value={formData.connection_params.common_address}
+                                            onChange={handleParamChange}
+                                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
+                                        />
+                                    </div>
                                 </div>
-                            </div>
-                        </>
-                    )}
+                            </>
+                        )}
+                    </div>
 
-                    {type === 'IEC104' && (
-                        <>
-                            <div>
-                                <label className="block text-sm font-medium text-slate-400 mb-1">Host</label>
-                                <input
-                                    name="host"
-                                    value={formData.connection_params.host}
-                                    onChange={handleParamChange}
-                                    className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
-                                />
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-400 mb-1">Port</label>
-                                    <input
-                                        name="port"
-                                        type="number"
-                                        value={formData.connection_params.port}
-                                        onChange={handleParamChange}
-                                        className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-400 mb-1">Common Address</label>
-                                    <input
-                                        name="common_address"
-                                        type="number"
-                                        value={formData.connection_params.common_address}
-                                        onChange={handleParamChange}
-                                        className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
-                                    />
-                                </div>
-                            </div>
-                        </>
-                    )}
-
-                    <button type="submit" className="w-full bg-accent text-primary font-bold py-2 rounded hover:bg-accent/90 transition-colors">
-                        {isEditMode ? 'Update Device' : 'Save Device'}
-                    </button>
+                    <div className="flex justify-end gap-3 pt-4 border-t border-surfaceHighlight/30">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="px-6 py-3 text-text-secondary hover:text-white transition-colors rounded-xl hover:bg-surfaceHighlight/30"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            className="px-6 py-3 bg-primary hover:bg-primaryHover text-white font-medium rounded-xl transition-all shadow-lg shadow-primary/20 hover:shadow-primary/40 hover:-translate-y-0.5"
+                        >
+                            {isEditMode ? 'Update Device' : 'Save Device'}
+                        </button>
+                    </div>
                 </form>
             </div>
         </div>

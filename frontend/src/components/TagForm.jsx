@@ -395,20 +395,22 @@ const TagForm = ({ onClose, onSubmit, editTag = null, initialType = null }) => {
     };
 
     return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className={`bg-secondary p-6 rounded-xl border border-slate-700 max-h-[90vh] overflow-y-auto ${type === 'CALCULATION' ? 'w-full max-w-4xl' : 'w-full max-w-md'}`}>
-                <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-xl font-bold text-white">{isEditMode ? 'Edit Tag' : 'Add Tag'}</h3>
-                    <button onClick={onClose} className="text-slate-400 hover:text-white"><X size={20} /></button>
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className={`bg-surface/50 backdrop-blur-md border border-surfaceHighlight rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto ${type === 'CALCULATION' ? 'w-full max-w-4xl' : 'w-full max-w-2xl'}`}>
+                <div className="sticky top-0 bg-surface/95 backdrop-blur-md border-b border-surfaceHighlight/50 p-6 flex justify-between items-center z-10">
+                    <h3 className="text-2xl font-bold text-white">{isEditMode ? 'Edit Tag' : 'Add Tag'}</h3>
+                    <button onClick={onClose} className="text-text-muted hover:text-white transition-colors p-2 hover:bg-surfaceHighlight/30 rounded-lg">
+                        <X size={20} />
+                    </button>
                 </div>
 
-                <form onSubmit={handleSubmit} className="space-y-4">
+                <form onSubmit={handleSubmit} className="p-6 space-y-6">
                     <div>
-                        <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">Type</label>
+                        <label className="block text-sm font-medium text-text-secondary mb-2">Tag Type</label>
                         <select
                             value={type}
                             onChange={(e) => setType(e.target.value)}
-                            className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary transition-colors"
                         >
                             <option value="IO">IO Tag</option>
                             <option value="USER">User Tag</option>
@@ -417,24 +419,25 @@ const TagForm = ({ onClose, onSubmit, editTag = null, initialType = null }) => {
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">Tag Name</label>
+                        <label className="block text-sm font-medium text-text-secondary mb-2">Tag Name</label>
                         <input
                             name="name"
                             value={formData.name}
                             onChange={handleChange}
-                            className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
+                            placeholder="Enter tag name..."
                             required
                         />
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">Tag ID (Optional)</label>
+                        <label className="block text-sm font-medium text-text-secondary mb-2">Tag ID (Optional)</label>
                         <input
                             name="tag_id"
                             value={formData.tag_id}
                             onChange={handleChange}
                             placeholder="Auto-generated if empty"
-                            className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
                         />
                     </div>
 
@@ -524,9 +527,21 @@ const TagForm = ({ onClose, onSubmit, editTag = null, initialType = null }) => {
                         </div>
                     )}
 
-                    <button type="submit" className="w-full bg-primary hover:bg-primaryHover text-white font-bold py-3 rounded-xl transition-colors shadow-lg">
-                        {isEditMode ? 'Update Tag' : 'Save Tag'}
-                    </button>
+                    <div className="flex justify-end gap-3 pt-4 border-t border-surfaceHighlight/30">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="px-6 py-3 text-text-secondary hover:text-white transition-colors rounded-xl hover:bg-surfaceHighlight/30"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            className="px-6 py-3 bg-primary hover:bg-primaryHover text-white font-medium rounded-xl transition-all shadow-lg shadow-primary/20 hover:shadow-primary/40 hover:-translate-y-0.5"
+                        >
+                            {isEditMode ? 'Update Tag' : 'Save Tag'}
+                        </button>
+                    </div>
                 </form>
             </div>
 
