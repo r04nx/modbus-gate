@@ -131,7 +131,7 @@ const Tags = () => {
 
         setWriting(true);
         try {
-            await writeTag(writeTagData.id, writeValue);
+            await writeTag(writeTagData.tag_id, writeValue);
             alert(`Successfully wrote value to ${writeTagData.name}`);
             setShowWriteModal(false);
             setWriteTagData(null);

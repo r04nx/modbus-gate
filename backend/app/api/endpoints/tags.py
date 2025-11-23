@@ -99,19 +99,9 @@ async def write_tag(tag_id: str, write_data: schemas.TagWrite, db: Session = Dep
                 raise HTTPException(status_code=500, detail=message)
             
             return {"success": True, "message": message}
-    
-    device = db.query(models.Device).filter(models.Device.id == db_tag.device_id).first()
-    if not device:
-        raise HTTPException(status_code=404, detail="Device not found")
-    
-    # Write value using appropriate protocol
-    writer = TagWriterService()
-    success, message = await writer.write_tag(device, db_tag, write_data.value)
-    
-    if success:
-        return {"ok": True, "message": message}
-    else:
-        raise HTTPException(status_code=500, detail=message)
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/export")

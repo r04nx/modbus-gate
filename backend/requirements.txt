@@ -12,4 +12,4 @@ websockets
 asyncua
 pysnmp-lextudio
 c104
-
+paho-mqtt

@@ -217,34 +217,162 @@ const TagForm = ({ onClose, onSubmit, editTag = null }) => {
                     </div>
                 );
             case 'IEC104':
+                const baseValue = parseInt(formData.params?.base_value || 0);
+                const addressOffset = parseInt(formData.address || 0);
+                const computedAddress = baseValue + addressOffset;
+
                 return (
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">IO Address (Information Object Address)</label>
-                            <input
-                                name="address"
-                                value={formData.address}
-                                onChange={handleChange}
-                                placeholder="e.g. 100"
-                                className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
-                                required
-                            />
+                    <div className="space-y-4">
+                        {/* Row 1: Register Type & Type ID */}
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">Register Type</label>
+                                <select
+                                    name="params.register_type"
+                                    value={formData.params?.register_type || 'HOLDING'}
+                                    onChange={handleChange}
+                                    className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                                >
+                                    <option value="HOLDING">Holding Register</option>
+                                    <option value="INPUT">Input Register</option>
+                                    <option value="COIL">Coil</option>
+                                    <option value="DISCRETE">Discrete Input</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">IEC-104 Point Type</label>
+                                <select
+                                    name="params.type_id"
+                                    value={formData.params?.type_id || 'M_SP_NA_1'}
+                                    onChange={handleChange}
+                                    className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                                >
+                                    <option value="M_SP_NA_1">Single Point (M_SP_NA_1)</option>
+                                    <option value="M_DP_NA_1">Double Point (M_DP_NA_1)</option>
+                                    <option value="M_ST_NA_1">Step Position (M_ST_NA_1)</option>
+                                    <option value="M_ME_NA_1">Measured Normalized (M_ME_NA_1)</option>
+                                    <option value="M_ME_NB_1">Measured Scaled (M_ME_NB_1)</option>
+                                    <option value="M_ME_NC_1">Measured Short Float (M_ME_NC_1)</option>
+                                </select>
+                            </div>
                         </div>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">Type ID</label>
-                            <select
-                                name="params.type_id"
-                                value={formData.params?.type_id || 'M_SP_NA_1'}
-                                onChange={handleChange}
-                                className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
-                            >
-                                <option value="M_SP_NA_1">Single Point (M_SP_NA_1)</option>
-                                <option value="M_DP_NA_1">Double Point (M_DP_NA_1)</option>
-                                <option value="M_ST_NA_1">Step Position (M_ST_NA_1)</option>
-                                <option value="M_ME_NA_1">Measured Normalized (M_ME_NA_1)</option>
-                                <option value="M_ME_NB_1">Measured Scaled (M_ME_NB_1)</option>
-                                <option value="M_ME_NC_1">Measured Short Float (M_ME_NC_1)</option>
-                            </select>
+
+                        {/* Row 2: Base Value & Address Offset */}
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">Base Value</label>
+                                <input
+                                    type="number"
+                                    name="params.base_value"
+                                    value={formData.params?.base_value || 0}
+                                    onChange={handleChange}
+                                    placeholder="e.g. 1000"
+                                    className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">Public Address (IOA)</label>
+                                <input
+                                    type="number"
+                                    name="address"
+                                    value={formData.address}
+                                    onChange={handleChange}
+                                    placeholder="e.g. 100"
+                                    className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                                    required
+                                />
+                            </div>
+                        </div>
+
+                        {/* Row 3: Computed Address (Read-only) & SOE */}
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">Computed Address</label>
+                                <input
+                                    type="text"
+                                    value={computedAddress}
+                                    readOnly
+                                    className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-slate-400 cursor-not-allowed"
+                                    title="Auto-calculated: Base Value + Public Address"
+                                />
+                            </div>
+                            <div className="flex items-end">
+                                <label className="flex items-center gap-2 cursor-pointer bg-primary border border-slate-700 rounded px-3 py-2 w-full hover:bg-slate-700 transition-colors">
+                                    <input
+                                        type="checkbox"
+                                        name="params.soe"
+                                        checked={formData.params?.soe || false}
+                                        onChange={(e) => {
+                                            const { name, checked } = e.target;
+                                            const paramName = name.split('.')[1];
+                                            setFormData(prev => ({
+                                                ...prev,
+                                                params: { ...prev.params, [paramName]: checked }
+                                            }));
+                                        }}
+                                        className="w-4 h-4 accent-accent"
+                                    />
+                                    <span className="text-sm font-medium text-slate-200">Sequence of Events (SOE)</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        {/* Row 4: Bit Manipulation */}
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">Start Bit (0-15)</label>
+                                <input
+                                    type="number"
+                                    name="params.start_bit"
+                                    value={formData.params?.start_bit ?? ''}
+                                    onChange={handleChange}
+                                    placeholder="Optional"
+                                    min="0"
+                                    max="15"
+                                    className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">Length (1-16 bits)</label>
+                                <input
+                                    type="number"
+                                    name="params.length"
+                                    value={formData.params?.length ?? ''}
+                                    onChange={handleChange}
+                                    placeholder="Optional"
+                                    min="1"
+                                    max="16"
+                                    className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Row 5: Span Scaling */}
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">Span Low</label>
+                                <input
+                                    type="number"
+                                    step="any"
+                                    name="params.span_low"
+                                    value={formData.params?.span_low ?? ''}
+                                    onChange={handleChange}
+                                    placeholder="Optional"
+                                    className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">Span High</label>
+                                <input
+                                    type="number"
+                                    step="any"
+                                    name="params.span_high"
+                                    value={formData.params?.span_high ?? ''}
+                                    onChange={handleChange}
+                                    placeholder="Optional"
+                                    className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                                />
+                            </div>
                         </div>
                     </div>
                 );

@@ -37,3 +37,12 @@ class Tag(Base):
     variable_mappings = Column(JSON, nullable=True) # Variable to tag_id mappings for calculations
 
     enabled = Column(Boolean, default=True)
+
+class ServerConfig(Base):
+    __tablename__ = "server_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    type = Column(String, unique=True, index=True) # MODBUS_SERVER, OPC_UA_SERVER, IEC104_SERVER, MQTT_PUBLISHER
+    enabled = Column(Boolean, default=False)
+    config = Column(JSON, default={}) # Port, Host, Topic, etc.
+

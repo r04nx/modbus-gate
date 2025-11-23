@@ -23,8 +23,8 @@ class GlobalStoreDataBlock(ModbusSequentialDataBlock):
     pass
 
 class ModbusServerService:
-    def __init__(self, port: int = 5020): # Default to 5020 to avoid permission issues
-        self.port = port
+    def __init__(self):
+        self.port = 5020
         self.server_task = None
         self.store = ModbusSlaveContext(
             di=ModbusSequentialDataBlock(0, [0]*10000),
@@ -42,43 +42,131 @@ class ModbusServerService:
         self.identity.MajorMinorRevision = '1.0.0'
 
     async def start(self):
+        # Load config from DB
+        await self._load_config()
+        
         # Start the server in a background task
         self.server_task = asyncio.create_task(self._run_server())
         # Start sync task
         asyncio.create_task(self._sync_store())
+
+    async def _load_config(self):
+        from app.core.database import SessionLocal
+        from app.models import models
+        
+        try:
+            db = SessionLocal()
+            config = db.query(models.ServerConfig).filter(models.ServerConfig.type == "MODBUS_SERVER").first()
+            if config and config.enabled:
+                self.port = int(config.config.get("port", 5020))
+            db.close()
+        except Exception as e:
+            logging.error(f"Error loading Modbus Server config: {e}")
 
     async def _run_server(self):
         logging.info(f"Starting Modbus Server on port {self.port}")
         await StartAsyncTcpServer(context=self.context, identity=self.identity, address=("0.0.0.0", self.port))
 
     async def _sync_store(self):
-        # This task syncs GlobalDataStore values to Modbus Registers
-        # We need a mapping mechanism. For now, let's assume a simple mapping:
-        # Tag "MODBUS_HR_1" -> Holding Register 1
+        # This task syncs GlobalDataStore values to Modbus Registers based on explicit mappings
+        from app.core.database import SessionLocal
+        from app.models import models
+        
         global_store = GlobalDataStore()
+        
         while True:
             try:
+                # Reload config periodically to catch updates
+                # In a production system, we might want a more event-driven approach
+                mappings = []
+                try:
+                    db = SessionLocal()
+                    config = db.query(models.ServerConfig).filter(models.ServerConfig.type == "MODBUS_SERVER").first()
+                    if config and config.enabled:
+                        mappings = config.config.get("mappings", [])
+                    db.close()
+                except Exception as e:
+                    logging.error(f"Error reloading Modbus config: {e}")
+
+                if not mappings:
+                    await asyncio.sleep(2)
+                    continue
+
                 tags = await global_store.get_all_tags()
-                for tag_id, tag_val in tags.items():
-                    # Check if tag is mapped to a register
-                    # Format: REG_TYPE_ADDRESS e.g. HR_100, IR_20, CO_5
-                    parts = tag_id.split('_')
-                    if len(parts) >= 2:
-                        reg_type = parts[0]
-                        try:
-                            addr = int(parts[1])
-                            val = int(tag_val.value) if isinstance(tag_val.value, (int, float)) else 0
+                
+                for mapping in mappings:
+                    tag_id = mapping.get("tag_id")
+                    if tag_id not in tags:
+                        continue
+                        
+                    tag_val = tags[tag_id]
+                    val = tag_val.value
+                    
+                    # Skip if value is None
+                    if val is None:
+                        continue
+
+                    reg_type = mapping.get("register_type", "HR")
+                    addr = int(mapping.get("address", 1))
+                    data_type = mapping.get("data_type", "INT16")
+                    unit_id = int(mapping.get("unit_id", 1)) # Currently we only support single context, so unit_id is ignored or used for routing if we had multiple slaves
+                    
+                    try:
+                        # Convert value based on data type
+                        # This is a simplified conversion. 
+                        # For FLOAT32/INT32/INT64 we need to split into registers.
+                        
+                        # Helper to convert value to registers
+                        registers = self._convert_to_registers(val, data_type)
+                        
+                        if reg_type == "HR":
+                            self.store.setValues(3, addr, registers)
+                        elif reg_type == "IR":
+                            self.store.setValues(4, addr, registers)
+                        elif reg_type == "CO":
+                            # Coils expect booleans
+                            bool_val = [bool(val)]
+                            self.store.setValues(1, addr, bool_val)
+                        elif reg_type == "DI":
+                            bool_val = [bool(val)]
+                            self.store.setValues(2, addr, bool_val)
                             
-                            if reg_type == "HR":
-                                self.store.setValues(3, addr, [val])
-                            elif reg_type == "IR":
-                                self.store.setValues(4, addr, [val])
-                            elif reg_type == "CO":
-                                self.store.setValues(1, addr, [val])
-                            elif reg_type == "DI":
-                                self.store.setValues(2, addr, [val])
-                        except ValueError:
-                            pass
+                    except Exception as e:
+                        # logging.error(f"Error syncing tag {tag_id}: {e}")
+                        pass
+                        
             except Exception as e:
                 logging.error(f"Error syncing Modbus store: {e}")
             await asyncio.sleep(0.5)
+
+    def _convert_to_registers(self, value, data_type):
+        import struct
+        
+        if data_type == "BOOL":
+            return [int(bool(value))]
+            
+        try:
+            # Handle numeric types
+            if data_type in ["FLOAT32", "FLOAT"]:
+                f = float(value)
+                # Pack as float, unpack as 2 unsigned shorts
+                packed = struct.pack('>f', f)
+                return list(struct.unpack('>HH', packed))
+            elif data_type in ["INT32", "UINT32"]:
+                i = int(value)
+                packed = struct.pack('>I', i & 0xFFFFFFFF)
+                return list(struct.unpack('>HH', packed))
+            elif data_type in ["INT64", "UINT64", "FLOAT64", "DOUBLE"]:
+                # 4 registers
+                if "FLOAT" in data_type or "DOUBLE" in data_type:
+                    f = float(value)
+                    packed = struct.pack('>d', f)
+                else:
+                    i = int(value)
+                    packed = struct.pack('>Q', i & 0xFFFFFFFFFFFFFFFF)
+                return list(struct.unpack('>HHHH', packed))
+            else:
+                # Default INT16/UINT16
+                return [int(value) & 0xFFFF]
+        except Exception:
+            return [0]

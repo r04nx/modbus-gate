@@ -58,6 +58,21 @@ async def startup_event():
     user_tags_service = UserTagService()
     await user_tags_service.start()
 
+    # Start OPC UA Server
+    from app.services.opcua_server import OPCUAServerService
+    opcua_server = OPCUAServerService()
+    await opcua_server.start()
+
+    # Start IEC 104 Server
+    from app.services.iec104_server import IEC104ServerService
+    iec104_server = IEC104ServerService()
+    await iec104_server.start()
+
+    # Start MQTT Publisher
+    from app.services.mqtt_publisher import MQTTPublisherService
+    mqtt_publisher = MQTTPublisherService()
+    await mqtt_publisher.start()
+
 @app.get("/")
 async def root():
     return {"message": "VistaIOT Backend is running"}

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Server, Tag, Settings, Activity, FileText } from 'lucide-react';
+import { LayoutDashboard, Server, Tag, Settings, Activity, FileText, Network } from 'lucide-react';
 import clsx from 'clsx';
 
 const Layout = ({ children }) => {
@@ -10,6 +10,8 @@ const Layout = ({ children }) => {
         { path: '/', label: 'Dashboard', icon: LayoutDashboard },
         { path: '/devices', label: 'Devices', icon: Server },
         { path: '/tags', label: 'Tags', icon: Tag },
+
+        { path: '/servers', label: 'Servers', icon: Network },
         { path: '/logs', label: 'Logs', icon: FileText },
         { path: '/settings', label: 'Settings', icon: Settings },
     ];

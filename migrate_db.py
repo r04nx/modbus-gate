@@ -4,13 +4,22 @@ conn = sqlite3.connect('backend/vistaiot.db')
 cursor = conn.cursor()
 
 try:
-    cursor.execute("ALTER TABLE tags ADD COLUMN params JSON")
+    # Create server_configs table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS server_configs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type VARCHAR,
+        enabled BOOLEAN,
+        config JSON
+    )
+    """)
+    
+    # Create index on type
+    cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_server_configs_type ON server_configs (type)")
+    
     conn.commit()
-    print("Successfully added 'params' column to 'tags' table.")
-except sqlite3.OperationalError as e:
-    if "duplicate column name" in str(e):
-        print("Column 'params' already exists.")
-    else:
-        print(f"Error: {e}")
+    print("Successfully created 'server_configs' table.")
+except Exception as e:
+    print(f"Error: {e}")
 finally:
     conn.close()
