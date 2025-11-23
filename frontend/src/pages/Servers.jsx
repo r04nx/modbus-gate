@@ -964,7 +964,7 @@ export default function Servers() {
                 isOpen={showTagSelector}
                 onClose={() => setShowTagSelector(false)}
                 onSelect={handleTagsSelected}
-                mappedTags={selectorContext === 'MAPPING' ? (config.config.mappings || []).map(m => m.tag_id) : []}
+                mappedTags={[]} // Allow duplicate mappings - same tag can be mapped multiple times
                 title={selectorContext === 'MQTT_PUB' ? "Select Tags for Publication" : "Select Tags to Map"}
             />
         </div>
