@@ -93,6 +93,21 @@ const TagForm = ({ onClose, onSubmit, editTag = null, initialType = null }) => {
             tagData.tag_id = `${base}_${timestamp}_${random}`.toUpperCase();
         }
 
+        // For USER and CALCULATION tags, remove device_id and address as they're virtual
+        if (type === 'USER' || type === 'CALCULATION') {
+            delete tagData.device_id;
+            delete tagData.address;
+            delete tagData.params;
+        }
+
+        // Clean up empty string values - convert to null or remove
+        if (tagData.device_id === '' || tagData.device_id === null) {
+            delete tagData.device_id;
+        }
+        if (tagData.address === '') {
+            delete tagData.address;
+        }
+
         // Check if tag_id already exists in current tags list
         const isDuplicate = tags.some(tag =>
             tag.tag_id === tagData.tag_id && (!editTag || tag.id !== editTag.id)
