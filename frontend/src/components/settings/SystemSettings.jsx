@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Server, Upload, Trash2, RefreshCw, GitBranch, Download, CheckCircle, AlertCircle } from 'lucide-react';
+import { Server, Upload, Trash2, RefreshCw, GitBranch, Download, CheckCircle, AlertCircle, Terminal } from 'lucide-react';
 import axios from 'axios';
 
 const SystemSettings = () => {
@@ -15,6 +15,7 @@ const SystemSettings = () => {
     const [updateCheckResult, setUpdateCheckResult] = useState(null);
     const [loading, setLoading] = useState(false);
     const [updating, setUpdating] = useState(false);
+    const [terminalEnabled, setTerminalEnabled] = useState(false);
 
     // Use dynamic API base URL instead of hardcoded localhost
     const API_HOST = window.location.hostname;
@@ -33,7 +34,8 @@ const SystemSettings = () => {
                 axios.get(`${API_BASE}/system/hostname`, { headers: getAuthHeader() }),
                 axios.get(`${API_BASE}/system/ssh`, { headers: getAuthHeader() }),
                 axios.get(`${API_BASE}/system/update`, { headers: getAuthHeader() }),
-                axios.get(`${API_BASE}/system/ssh/keys`, { headers: getAuthHeader() })
+                axios.get(`${API_BASE}/system/ssh/keys`, { headers: getAuthHeader() }),
+                axios.get(`${API_BASE}/system/terminal`, { headers: getAuthHeader() })
             ]);
             setHostname(hostnameRes.data.hostname);
             setSshEnabled(sshRes.data.enabled);
@@ -43,6 +45,7 @@ const SystemSettings = () => {
             setLastUpdateCheck(updateRes.data.last_update_check);
             setLastUpdateStatus(updateRes.data.last_update_status);
             setSshKeys(keysRes.data);
+            setTerminalEnabled(terminalRes.data.enabled);
         } catch (error) {
             console.error('Failed to fetch settings:', error);
         }
@@ -162,6 +165,19 @@ const SystemSettings = () => {
         }
     };
 
+    const handleToggleTerminal = async () => {
+        try {
+            setLoading(true);
+            await axios.put(`${API_BASE}/system/terminal`, { enabled: !terminalEnabled }, { headers: getAuthHeader() });
+            setTerminalEnabled(!terminalEnabled);
+            alert('Terminal setting updated. Please refresh the page to see changes in navigation.');
+        } catch (error) {
+            alert(`Failed to toggle terminal: ${error.response?.data?.detail || error.message}`);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             {/* Hostname */}
@@ -229,6 +245,30 @@ const SystemSettings = () => {
                             <input type="file" onChange={handleUploadKey} className="hidden" />
                         </label>
                     </div>
+                </div>
+            </div>
+
+            {/* Terminal Configuration */}
+            <div className="bg-surfaceHighlight/10 rounded-2xl p-6 border border-surfaceHighlight/30">
+                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                    <Terminal className="w-5 h-5 text-emerald-400" />
+                    Terminal Access
+                </h3>
+                <div className="space-y-4">
+                    <label className="flex items-center gap-3 cursor-pointer group bg-surfaceHighlight/5 rounded-xl p-4">
+                        <input
+                            type="checkbox"
+                            checked={terminalEnabled}
+                            onChange={handleToggleTerminal}
+                            disabled={loading}
+                            className="w-4 h-4 accent-emerald-400"
+                        />
+                        <span className="text-white group-hover:text-emerald-400 transition-colors font-medium">Enable Web Terminal</span>
+                    </label>
+                    <p className="text-text-secondary text-sm px-4">
+                        <AlertCircle className="w-4 h-4 inline mr-2 text-orange-400" />
+                        Enabling this feature provides root shell access via the web interface. Use with caution.
+                    </p>
                 </div>
             </div>
 
@@ -336,7 +376,7 @@ const SystemSettings = () => {
                     </button>
                 </div>
             </div>
-        </div>
+        </div >
     );
 };
 

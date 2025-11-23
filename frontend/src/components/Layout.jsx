@@ -1,20 +1,45 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Server, Tag, Settings, Activity, FileText, Network } from 'lucide-react';
+import { LayoutDashboard, Server, Tag, Settings, Activity, FileText, Network, Terminal } from 'lucide-react';
 import clsx from 'clsx';
+import axios from 'axios';
 
 const Layout = ({ children }) => {
     const location = useLocation();
+    const [terminalEnabled, setTerminalEnabled] = useState(false);
+
+    useEffect(() => {
+        const checkTerminal = async () => {
+            try {
+                const API_HOST = window.location.hostname;
+                const API_PORT = '8000';
+                const API_BASE = `http://${API_HOST}:${API_PORT}/api/v1`;
+                // Simple auth header if needed, though GET might be public or we rely on cookie/basic auth default
+                // SystemSettings uses Basic auth admin:admin. We should probably use it here too.
+                const getAuthHeader = () => ({ Authorization: `Basic ${btoa('admin:admin')}` });
+
+                const res = await axios.get(`${API_BASE}/system/terminal`, { headers: getAuthHeader() });
+                setTerminalEnabled(res.data.enabled);
+            } catch (e) {
+                console.error("Failed to check terminal status", e);
+            }
+        };
+        checkTerminal();
+    }, []);
 
     const navItems = [
         { path: '/', label: 'Dashboard', icon: LayoutDashboard },
         { path: '/devices', label: 'Devices', icon: Server },
         { path: '/tags', label: 'Tags', icon: Tag },
-
         { path: '/servers', label: 'Servers', icon: Network },
         { path: '/logs', label: 'Logs', icon: FileText },
-        { path: '/settings', label: 'Settings', icon: Settings },
     ];
+
+    if (terminalEnabled) {
+        navItems.push({ path: '/terminal', label: 'Terminal', icon: Terminal });
+    }
+
+    navItems.push({ path: '/settings', label: 'Settings', icon: Settings });
 
     return (
         <div className="flex h-screen bg-background overflow-hidden">

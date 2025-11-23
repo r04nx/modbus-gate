@@ -389,3 +389,39 @@ async def trigger_update(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to trigger update: {str(e)}"
         )
+        return UpdateTriggerResponse(
+            success=success,
+            message=message
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to trigger update: {str(e)}"
+        )
+
+
+# Terminal endpoints
+class TerminalConfig(BaseModel):
+    enabled: bool
+
+
+@router.get("/terminal", response_model=TerminalConfig)
+def get_terminal_config(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get terminal configuration."""
+    enabled = get_setting("terminal_enabled", db, "false") == "true"
+    return TerminalConfig(enabled=enabled)
+
+
+@router.put("/terminal", response_model=TerminalConfig)
+def update_terminal_config(
+    config: TerminalConfig,
+    current_user: User = Depends(get_current_superroot),
+    db: Session = Depends(get_db)
+):
+    """Update terminal configuration (superroot only)."""
+    set_setting("terminal_enabled", "true" if config.enabled else "false", db)
+    return TerminalConfig(enabled=config.enabled)

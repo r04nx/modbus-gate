@@ -16,3 +16,6 @@ api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(storage.router, prefix="/storage", tags=["storage"])
 api_router.include_router(system.router, prefix="/system", tags=["system"])
 api_router.include_router(network.router, prefix="/network", tags=["network"])
+
+from app.api.endpoints import terminal
+api_router.include_router(terminal.router, prefix="/terminal", tags=["terminal"])
