@@ -13,3 +13,4 @@ asyncua
 pysnmp-lextudio
 c104
 paho-mqtt
+passlib[bcrypt]

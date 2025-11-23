@@ -2,6 +2,11 @@ from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, JSON, Float
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
+# Import new models
+from .user import User, Session, UserRole
+from .storage_policy import StoragePolicy, PolicyType, TimeUnit
+from .system_settings import SystemSettings
+
 class Device(Base):
     __tablename__ = "devices"
 

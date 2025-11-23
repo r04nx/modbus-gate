@@ -7,9 +7,7 @@ import Tags from './pages/Tags';
 
 import Logs from './pages/Logs';
 import Servers from './pages/Servers'; // Added Servers import
-
-// Placeholder pages
-const Settings = () => <div className="text-white">Settings Page (Coming Soon)</div>;
+import Settings from './pages/Settings';
 
 import Layout from './components/Layout';
 

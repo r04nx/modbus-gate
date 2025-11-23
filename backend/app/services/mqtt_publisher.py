@@ -106,14 +106,6 @@ class MQTTPublisherService:
                     try:
                         # Simple template replacement
                         # We expect template to be a JSON string with placeholders like {{tag_id}}
-                        # Or we can construct a dict and dump it
-                        
-                        # Better approach: The template is a JSON object structure definition
-                        # But for flexibility, let's assume it's a string with placeholders for now, 
-                        # or a list of tags to include in a default format.
-                        
-                        # Let's support a "smart" payload builder
-                        # If template is empty, use default: { "tag_id": value, ... }
                         
                         payload_str = template
                         
@@ -122,11 +114,9 @@ class MQTTPublisherService:
                         payload_str = payload_str.replace("{{timestamp_ms}}", str(int(current_time * 1000)))
                         
                         # Replace tags
-                        # We need to find all {{tag_id}} patterns
-                        # Or iterate configured tags
                         pub_tags = pub.get("tags", [])
                         
-                        # If template is just "{}", we build a dict
+                        # If template is just "{}", we build a dict from configured tags
                         if template.strip() == "{}":
                             data = {}
                             if "timestamp" in pub.get("options", []):
@@ -137,19 +127,35 @@ class MQTTPublisherService:
                                     data[tag_id] = tags[tag_id].value
                             payload_str = json.dumps(data)
                         else:
-                            # String replacement
-                            for tag_id in pub_tags:
+                            # String replacement - find all {{tag_id}} patterns and replace with values
+                            import re
+                            
+                            # Find all {{...}} patterns
+                            pattern = r'\{\{([^}]+)\}\}'
+                            matches = re.findall(pattern, payload_str)
+                            
+                            for tag_id in matches:
+                                # Skip timestamp placeholders (already handled)
+                                if tag_id in ['timestamp', 'timestamp_ms']:
+                                    continue
+                                    
+                                # Replace with actual tag value if it exists
                                 if tag_id in tags:
                                     val = tags[tag_id].value
-                                    # Handle JSON safety for strings?
-                                    val_str = json.dumps(val) # This adds quotes for strings, etc.
-                                    # If the placeholder is inside quotes in the template, we might have issues.
-                                    # Let's assume the user puts {{tag_id}} where a value should go.
-                                    # If it's a string value, json.dumps adds quotes, so user shouldn't put quotes in template?
-                                    # This is tricky.
+                                    # Convert value to string, handling different types
+                                    if isinstance(val, str):
+                                        val_str = f'"{val}"'  # Add quotes for JSON strings
+                                    elif isinstance(val, (int, float)):
+                                        val_str = str(val)
+                                    elif isinstance(val, bool):
+                                        val_str = 'true' if val else 'false'
+                                    else:
+                                        val_str = json.dumps(val)
                                     
-                                    # Alternative: simple string replace of value
-                                    payload_str = payload_str.replace(f"{{{{{tag_id}}}}}", str(val))
+                                    payload_str = payload_str.replace(f"{{{{{tag_id}}}}}", val_str)
+                                else:
+                                    # Tag not found, replace with null
+                                    payload_str = payload_str.replace(f"{{{{{tag_id}}}}}", "null")
                         
                         self.brokers[broker_id].publish(topic, payload_str)
                         self.last_publish[pub_id] = current_time
