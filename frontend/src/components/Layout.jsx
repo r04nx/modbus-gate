@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Server, Tag, Settings, Activity, FileText, Network, Terminal } from 'lucide-react';
+import { LayoutDashboard, Server, Tag, Settings, Activity, FileText, Network, Terminal, Download } from 'lucide-react';
 import clsx from 'clsx';
 import axios from 'axios';
 
@@ -39,6 +39,7 @@ const Layout = ({ children }) => {
         navItems.push({ path: '/terminal', label: 'Terminal', icon: Terminal });
     }
 
+    navItems.push({ path: '/config', label: 'Config', icon: Download });
     navItems.push({ path: '/settings', label: 'Settings', icon: Settings });
 
     return (

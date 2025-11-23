@@ -9,6 +9,7 @@ import Logs from './pages/Logs';
 import Servers from './pages/Servers'; // Added Servers import
 import Settings from './pages/Settings';
 import Terminal from './pages/Terminal';
+import ConfigManagement from './pages/ConfigManagement';
 
 import Layout from './components/Layout';
 
@@ -24,6 +25,7 @@ function App() {
           <Route path="/servers" element={<Servers />} />
           <Route path="/logs" element={<Logs />} />
           <Route path="/terminal" element={<Terminal />} />
+          <Route path="/config" element={<ConfigManagement />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </Layout>

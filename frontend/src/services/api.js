@@ -46,4 +46,15 @@ export const writeTag = (id, value) => api.post(`/tags/${id}/write`, { value });
 // Server Config
 export const getServerConfig = (type) => api.get(`/servers/${type}`);
 
+// Configuration Management
+export const exportConfiguration = (options = {}) => {
+    const params = new URLSearchParams();
+    Object.entries(options).forEach(([key, value]) => {
+        params.append(key, value);
+    });
+    return api.get(`/config/export?${params.toString()}`);
+};
+
+export const importConfiguration = (config) => api.post('/config/import', config);
+
 export default api;
