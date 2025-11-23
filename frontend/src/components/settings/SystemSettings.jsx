@@ -30,7 +30,7 @@ const SystemSettings = () => {
 
     const fetchSettings = async () => {
         try {
-            const [hostnameRes, sshRes, updateRes, keysRes] = await Promise.all([
+            const [hostnameRes, sshRes, updateRes, keysRes, terminalRes] = await Promise.all([
                 axios.get(`${API_BASE}/system/hostname`, { headers: getAuthHeader() }),
                 axios.get(`${API_BASE}/system/ssh`, { headers: getAuthHeader() }),
                 axios.get(`${API_BASE}/system/update`, { headers: getAuthHeader() }),
