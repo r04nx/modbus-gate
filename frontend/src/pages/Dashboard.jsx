@@ -185,16 +185,25 @@ const Dashboard = () => {
                     </h3>
                     <div className="space-y-4">
                         <div className="flex justify-between items-center p-3 bg-surfaceHighlight/20 rounded-xl">
-                            <span className="text-text-secondary">Modbus Server</span>
-                            <span className="text-white font-medium">Port 5020 (Active)</span>
+                            <div className="flex items-center gap-3">
+                                <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)] animate-pulse" />
+                                <span className="text-text-secondary">Modbus Server</span>
+                            </div>
+                            <span className="text-white font-medium text-sm">Port 5020</span>
                         </div>
                         <div className="flex justify-between items-center p-3 bg-surfaceHighlight/20 rounded-xl">
-                            <span className="text-text-secondary">OPC UA Client</span>
-                            <span className="text-white font-medium">Ready</span>
+                            <div className="flex items-center gap-3">
+                                <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)] animate-pulse" />
+                                <span className="text-text-secondary">OPC UA Server</span>
+                            </div>
+                            <span className="text-white font-medium text-sm">Port 4840</span>
                         </div>
                         <div className="flex justify-between items-center p-3 bg-surfaceHighlight/20 rounded-xl">
-                            <span className="text-text-secondary">IEC 104 Client</span>
-                            <span className="text-white font-medium">Ready</span>
+                            <div className="flex items-center gap-3">
+                                <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)] animate-pulse" />
+                                <span className="text-text-secondary">IEC104 Server</span>
+                            </div>
+                            <span className="text-white font-medium text-sm">Port 2404</span>
                         </div>
                     </div>
                 </div>
