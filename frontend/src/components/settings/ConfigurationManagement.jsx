@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Download, Upload, Trash2, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
 import axios from 'axios';
+import ConfigButtons from './ConfigButtons';
 
 const ConfigurationManagement = () => {
     const [deleteOptions, setDeleteOptions] = useState({
@@ -9,9 +10,6 @@ const ConfigurationManagement = () => {
         delete_servers: false,
     });
     const [showFactoryResetConfirm, setShowFactoryResetConfirm] = useState(false);
-    const [showImportModal, setShowImportModal] = useState(false);
-    const [importFile, setImportFile] = useState(null);
-    const [overwriteMode, setOverwriteMode] = useState(false);
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState(null);
 
@@ -26,66 +24,6 @@ const ConfigurationManagement = () => {
         // In production, this should come from a login system
         const credentials = btoa('admin:admin');
         return { Authorization: `Basic ${credentials}` };
-    };
-
-    const handleExport = async () => {
-        try {
-            setLoading(true);
-            const response = await axios.get(`${API_BASE}/config/export`, {
-                headers: getAuthHeader(),
-            });
-
-            // Create download link
-            const blob = new Blob([JSON.stringify(response.data, null, 2)], {
-                type: 'application/json',
-            });
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `vistaiot-config-${new Date().toISOString().split('T')[0]}.json`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(url);
-
-            setMessage({ type: 'success', text: 'Configuration exported successfully' });
-        } catch (error) {
-            setMessage({ type: 'error', text: `Export failed: ${error.response?.data?.detail || error.message}` });
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleImport = async () => {
-        if (!importFile) {
-            setMessage({ type: 'error', text: 'Please select a file to import' });
-            return;
-        }
-
-        try {
-            setLoading(true);
-            const fileContent = await importFile.text();
-            const configData = JSON.parse(fileContent);
-
-            const response = await axios.post(
-                `${API_BASE}/config/import`,
-                {
-                    data: configData.data,
-                    overwrite: overwriteMode,
-                },
-                {
-                    headers: getAuthHeader(),
-                }
-            );
-
-            setMessage({ type: 'success', text: `Configuration imported: ${JSON.stringify(response.data.imported)}` });
-            setShowImportModal(false);
-            setImportFile(null);
-        } catch (error) {
-            setMessage({ type: 'error', text: `Import failed: ${error.response?.data?.detail || error.message}` });
-        } finally {
-            setLoading(false);
-        }
     };
 
     const handleDelete = async () => {
@@ -164,41 +102,16 @@ const ConfigurationManagement = () => {
                 </div>
             )}
 
-            {/* Export/Import Section */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-surfaceHighlight/10 rounded-2xl p-6 border border-surfaceHighlight/30 hover:border-surfaceHighlight/50 transition-all">
-                    <h3 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
-                        <Download className="w-5 h-5 text-blue-400" />
-                        Export Configuration
-                    </h3>
-                    <p className="text-text-secondary text-sm mb-4">
-                        Download the complete system configuration as a JSON file.
-                    </p>
-                    <button
-                        onClick={handleExport}
-                        disabled={loading}
-                        className="w-full bg-surfaceHighlight/30 hover:bg-surfaceHighlight/50 text-white px-4 py-3 rounded-xl transition-all disabled:opacity-50 font-medium"
-                    >
-                        {loading ? 'Exporting...' : 'Download Configuration'}
-                    </button>
-                </div>
-
-                <div className="bg-surfaceHighlight/10 rounded-2xl p-6 border border-surfaceHighlight/30 hover:border-surfaceHighlight/50 transition-all">
-                    <h3 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
-                        <Upload className="w-5 h-5 text-cyan-400" />
-                        Import Configuration
-                    </h3>
-                    <p className="text-text-secondary text-sm mb-4">
-                        Upload a configuration file to restore or merge settings.
-                    </p>
-                    <button
-                        onClick={() => setShowImportModal(true)}
-                        disabled={loading}
-                        className="w-full bg-surfaceHighlight/30 hover:bg-surfaceHighlight/50 text-white px-4 py-3 rounded-xl transition-all disabled:opacity-50 font-medium"
-                    >
-                        Upload Configuration
-                    </button>
-                </div>
+            {/* Export/Import Section with Selective Options */}
+            <div className="bg-surfaceHighlight/10 rounded-2xl p-6 border border-surfaceHighlight/30">
+                <h3 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
+                    <Download className="w-5 h-5 text-emerald-400" />
+                    Configuration Management
+                </h3>
+                <p className="text-text-secondary text-sm mb-4">
+                    Export and import system configuration with selective options
+                </p>
+                <ConfigButtons />
             </div>
 
             {/* Delete Configuration Section */}
@@ -276,58 +189,6 @@ const ConfigurationManagement = () => {
                     Factory Reset
                 </button>
             </div>
-
-            {/* Import Modal */}
-            {showImportModal && (
-                <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
-                    <div className="bg-surfaceHighlight/20 backdrop-blur-xl rounded-2xl p-6 max-w-md w-full mx-4 border border-surfaceHighlight/50 shadow-2xl">
-                        <h3 className="text-xl font-bold text-white mb-4">Import Configuration</h3>
-
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-text-secondary mb-2">
-                                    Select Configuration File
-                                </label>
-                                <input
-                                    type="file"
-                                    accept=".json"
-                                    onChange={(e) => setImportFile(e.target.files[0])}
-                                    className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight/50 rounded-xl px-3 py-2 text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-surfaceHighlight/30 file:text-white hover:file:bg-surfaceHighlight/50 file:cursor-pointer"
-                                />
-                            </div>
-
-                            <label className="flex items-center gap-3 cursor-pointer group">
-                                <input
-                                    type="checkbox"
-                                    checked={overwriteMode}
-                                    onChange={(e) => setOverwriteMode(e.target.checked)}
-                                    className="w-4 h-4 accent-cyan-400"
-                                />
-                                <span className="text-white group-hover:text-cyan-400 transition-colors">Overwrite existing data</span>
-                            </label>
-
-                            <div className="flex gap-3 pt-2">
-                                <button
-                                    onClick={() => {
-                                        setShowImportModal(false);
-                                        setImportFile(null);
-                                    }}
-                                    className="flex-1 bg-surfaceHighlight/20 hover:bg-surfaceHighlight/30 text-white px-4 py-3 rounded-xl transition-all border border-surfaceHighlight/30"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleImport}
-                                    disabled={!importFile || loading}
-                                    className="flex-1 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 border border-cyan-500/30 px-4 py-3 rounded-xl transition-all disabled:opacity-50 font-medium"
-                                >
-                                    {loading ? 'Importing...' : 'Import'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {/* Factory Reset Confirmation Modal */}
             {showFactoryResetConfirm && (

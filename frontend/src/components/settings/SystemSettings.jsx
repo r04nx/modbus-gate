@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Server, Upload, Trash2, RefreshCw, GitBranch, Download, CheckCircle, AlertCircle, Terminal, X, Info } from 'lucide-react';
 import axios from 'axios';
 import { exportConfiguration, importConfiguration } from '../../services/api';
-import ConfigButtons from './ConfigButtons';
 
 const SystemSettings = () => {
     const [hostname, setHostname] = useState('');
@@ -301,18 +300,6 @@ const SystemSettings = () => {
                         Enabling this feature provides root shell access via the web interface. Use with caution.
                     </p>
                 </div>
-            </div>
-
-            {/* Configuration Management */}
-            <div className="bg-surfaceHighlight/10 rounded-2xl p-6 border border-surfaceHighlight/30">
-                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                    <Download className="w-5 h-5 text-emerald-400" />
-                    Configuration Management
-                </h3>
-                <p className="text-text-secondary text-sm mb-4">
-                    Export and import system configuration with selective options
-                </p>
-                <ConfigButtons />
             </div>
 
             {/* System Updates */}
