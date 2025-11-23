@@ -59,8 +59,8 @@ class SystemTagService:
                         # Check if interface is up
                         if interface_name in stats and stats[interface_name].isup:
                             for address in interface_addresses:
-                                # Get IPv4 addresses
-                                if str(address.family) == 'AddressFamily.AF_INET':
+                        # Get IPv4 addresses
+                        if address.family == socket.AF_INET:
                                     network_interfaces.append({
                                         'interface': interface_name,
                                         'ip': address.address
