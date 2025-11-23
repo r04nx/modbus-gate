@@ -78,8 +78,13 @@ const TagForm = ({ onClose, onSubmit, editTag = null, initialType = null }) => {
         e.preventDefault();
         const tagData = { ...formData, type };
 
-        // Generate unique tag_id if not provided by user
-        if (!tagData.tag_id) {
+        // Trim and clean tag_id
+        if (tagData.tag_id) {
+            tagData.tag_id = tagData.tag_id.trim();
+        }
+
+        // Generate unique tag_id if not provided by user or if empty after trimming
+        if (!tagData.tag_id || tagData.tag_id === '') {
             // Create base from name
             const base = tagData.name.toUpperCase().replace(/\s+/g, '_').substring(0, 20);
             // Add timestamp + random suffix for uniqueness
