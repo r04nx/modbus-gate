@@ -56,11 +56,13 @@ class SystemTagService:
                         if interface_name == 'lo':
                             continue
                         
-                        # Check if interface is up
-                        if interface_name in stats and stats[interface_name].isup:
+                        # Check if interface is administratively up (optional, but good)
+                        # We remove the strict 'isup' check because it checks for carrier (cable plugged in)
+                        # and we want to see the IP even if the cable is unplugged.
+                        if interface_name in stats:
                             for address in interface_addresses:
-                        # Get IPv4 addresses
-                        if address.family == socket.AF_INET:
+                                # Get IPv4 addresses
+                                if address.family == socket.AF_INET:
                                     network_interfaces.append({
                                         'interface': interface_name,
                                         'ip': address.address
