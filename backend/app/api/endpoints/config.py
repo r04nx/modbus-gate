@@ -40,6 +40,14 @@ class ConfigExport(BaseModel):
 class ConfigImport(BaseModel):
     data: Dict[str, Any]
     overwrite: bool = False
+    import_devices: bool = True
+    import_tags: bool = True
+    import_servers: bool = True
+    import_storage_policy: bool = True
+    import_system_settings: bool = True
+    import_ssh_keys: bool = True
+    import_network: bool = True
+    import_hostname: bool = True
 
 
 class DeleteOptions(BaseModel):
@@ -65,31 +73,38 @@ class ImportResponse(BaseModel):
 
 @router.get("/export", response_model=ConfigExport)
 def export_configuration(
+    include_devices: bool = True,
+    include_tags: bool = True,
+    include_servers: bool = True,
+    include_storage_policy: bool = True,
+    include_system_settings: bool = True,
+    include_users: bool = True,
+    include_ssh_keys: bool = True,
+    include_network: bool = True,
+    include_hostname: bool = True,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    Export full system configuration as JSON.
+    Export full or selective system configuration as JSON.
     
-    Includes:
-    - All devices
-    - All tags
-    - All server configurations
-    - Storage policy
-    - System settings
-    - Users (passwords excluded)
+    Query Parameters:
+    - include_devices: Include device configurations (default: True)
+    - include_tags: Include tag configurations (default: True)
+    - include_servers: Include server configurations (default: True)
+    - include_storage_policy: Include storage policy (default: True)
+    - include_system_settings: Include system settings (default: True)
+    - include_users: Include users (passwords excluded) (default: True)
+    - include_ssh_keys: Include SSH private keys (default: True)
+    - include_network: Include network configuration (default: True)
+    - include_hostname: Include OS hostname (default: True)
     """
-    # Get all data
-    devices = db.query(Device).all()
-    tags = db.query(Tag).all()
-    server_configs = db.query(ServerConfig).all()
-    storage_policy = db.query(StoragePolicy).first()
-    system_settings = db.query(SystemSettings).all()
-    users = db.query(User).all()
+    export_data = {}
     
-    # Convert to dictionaries
-    export_data = {
-        "devices": [
+    # Get and export devices
+    if include_devices:
+        devices = db.query(Device).all()
+        export_data["devices"] = [
             {
                 "id": d.id,
                 "name": d.name,
@@ -100,8 +115,12 @@ def export_configuration(
                 "polling_interval": d.polling_interval
             }
             for d in devices
-        ],
-        "tags": [
+        ]
+    
+    # Get and export tags
+    if include_tags:
+        tags = db.query(Tag).all()
+        export_data["tags"] = [
             {
                 "id": t.id,
                 "tag_id": t.tag_id,
@@ -118,8 +137,12 @@ def export_configuration(
                 "enabled": t.enabled
             }
             for t in tags
-        ],
-        "server_configs": [
+        ]
+    
+    # Get and export server configs
+    if include_servers:
+        server_configs = db.query(ServerConfig).all()
+        export_data["server_configs"] = [
             {
                 "id": sc.id,
                 "type": sc.type,
@@ -127,20 +150,32 @@ def export_configuration(
                 "config": sc.config
             }
             for sc in server_configs
-        ],
-        "storage_policy": {
+        ]
+    
+    # Get and export storage policy
+    if include_storage_policy:
+        storage_policy = db.query(StoragePolicy).first()
+        export_data["storage_policy"] = {
             "enabled": storage_policy.enabled,
             "policy_type": storage_policy.policy_type,
             "storage_threshold_percent": storage_policy.storage_threshold_percent,
             "time_value": storage_policy.time_value,
             "time_unit": storage_policy.time_unit,
             "northbound_interface": storage_policy.northbound_interface
-        } if storage_policy else None,
-        "system_settings": {
+        } if storage_policy else None
+    
+    # Get and export system settings
+    if include_system_settings:
+        system_settings = db.query(SystemSettings).all()
+        export_data["system_settings"] = {
             setting.key: setting.value
             for setting in system_settings
-        },
-        "users": [
+        }
+    
+    # Get and export users
+    if include_users:
+        users = db.query(User).all()
+        export_data["users"] = [
             {
                 "username": u.username,
                 "role": u.role,
@@ -148,52 +183,54 @@ def export_configuration(
             }
             for u in users
         ]
-    }
     
     # Export SSH Keys
-    try:
-        ssh_keys = {}
-        ssh_dir = os.path.expanduser("~/.ssh")
-        if os.path.exists(ssh_dir):
-            for filename in os.listdir(ssh_dir):
-                filepath = os.path.join(ssh_dir, filename)
-                # Only export private keys (not .pub files, not known_hosts, not authorized_keys)
-                if os.path.isfile(filepath) and not filename.endswith('.pub') and filename not in ['known_hosts', 'authorized_keys', 'config']:
-                    try:
-                        with open(filepath, 'rb') as f:
-                            content = f.read()
-                            ssh_keys[filename] = {
-                                "content": base64.b64encode(content).decode('utf-8'),
-                                "permissions": oct(os.stat(filepath).st_mode)[-3:]
-                            }
-                    except Exception:
-                        pass  # Skip files we can't read
-        export_data["ssh_keys"] = ssh_keys
-    except Exception:
-        export_data["ssh_keys"] = {}
+    if include_ssh_keys:
+        try:
+            ssh_keys = {}
+            ssh_dir = os.path.expanduser("~/.ssh")
+            if os.path.exists(ssh_dir):
+                for filename in os.listdir(ssh_dir):
+                    filepath = os.path.join(ssh_dir, filename)
+                    # Only export private keys (not .pub files, not known_hosts, not authorized_keys)
+                    if os.path.isfile(filepath) and not filename.endswith('.pub') and filename not in ['known_hosts', 'authorized_keys', 'config']:
+                        try:
+                            with open(filepath, 'rb') as f:
+                                content = f.read()
+                                ssh_keys[filename] = {
+                                    "content": base64.b64encode(content).decode('utf-8'),
+                                    "permissions": oct(os.stat(filepath).st_mode)[-3:]
+                                }
+                        except Exception:
+                            pass  # Skip files we can't read
+            export_data["ssh_keys"] = ssh_keys
+        except Exception:
+            export_data["ssh_keys"] = {}
     
     # Export Network Configuration
-    try:
-        from .network import get_interfaces
-        network_interfaces = {}
-        interfaces = get_interfaces()
-        for iface in interfaces:
-            network_interfaces[iface.name] = {
-                "dhcp": iface.dhcp,
-                "ip_address": iface.ip_address,
-                "netmask": iface.netmask,
-                "gateway": iface.gateway
-            }
-        export_data["network_interfaces"] = network_interfaces
-    except Exception:
-        export_data["network_interfaces"] = {}
+    if include_network:
+        try:
+            from .network import get_interfaces
+            network_interfaces = {}
+            interfaces = get_interfaces()
+            for iface in interfaces:
+                network_interfaces[iface.name] = {
+                    "dhcp": iface.dhcp,
+                    "ip_address": iface.ip_address,
+                    "netmask": iface.netmask,
+                    "gateway": iface.gateway
+                }
+            export_data["network_interfaces"] = network_interfaces
+        except Exception:
+            export_data["network_interfaces"] = {}
     
     # Export OS Hostname
-    try:
-        result = subprocess.run(["hostname"], capture_output=True, text=True, timeout=5)
-        export_data["os_hostname"] = result.stdout.strip()
-    except Exception:
-        export_data["os_hostname"] = None
+    if include_hostname:
+        try:
+            result = subprocess.run(["hostname"], capture_output=True, text=True, timeout=5)
+            export_data["os_hostname"] = result.stdout.strip()
+        except Exception:
+            export_data["os_hostname"] = None
     
     # Add Metadata
     export_data["metadata"] = {
@@ -249,7 +286,7 @@ def import_configuration(
         new_ip = None
         
         # Import devices
-        if "devices" in data:
+        if config.import_devices and "devices" in data:
             for device_data in data["devices"]:
                 existing = db.query(Device).filter(Device.name == device_data["name"]).first()
                 
@@ -268,7 +305,7 @@ def import_configuration(
                 imported_count["devices"] += 1
         
         # Import tags
-        if "tags" in data:
+        if config.import_tags and "tags" in data:
             for tag_data in data["tags"]:
                 existing = db.query(Tag).filter(Tag.tag_id == tag_data["tag_id"]).first()
                 
@@ -287,7 +324,7 @@ def import_configuration(
                 imported_count["tags"] += 1
         
         # Import server configs
-        if "server_configs" in data:
+        if config.import_servers and "server_configs" in data:
             for sc_data in data["server_configs"]:
                 existing = db.query(ServerConfig).filter(ServerConfig.type == sc_data["type"]).first()
                 
@@ -306,7 +343,7 @@ def import_configuration(
                 imported_count["server_configs"] += 1
         
         # Import system settings
-        if "system_settings" in data:
+        if config.import_system_settings and "system_settings" in data:
             for key, value in data["system_settings"].items():
                 existing = db.query(SystemSettings).filter(SystemSettings.key == key).first()
                 
@@ -319,7 +356,7 @@ def import_configuration(
                 imported_count["system_settings"] += 1
         
         # Import storage policy
-        if "storage_policy" in data and data["storage_policy"]:
+        if config.import_storage_policy and "storage_policy" in data and data["storage_policy"]:
             policy = db.query(StoragePolicy).first()
             if policy:
                 for key, value in data["storage_policy"].items():
@@ -332,7 +369,7 @@ def import_configuration(
         db.commit()
         
         # Import SSH Keys
-        if "ssh_keys" in data and data["ssh_keys"]:
+        if config.import_ssh_keys and "ssh_keys" in data and data["ssh_keys"]:
             ssh_dir = os.path.expanduser("~/.ssh")
             os.makedirs(ssh_dir, exist_ok=True)
             
@@ -377,7 +414,7 @@ def import_configuration(
                 ))
         
         # Import Network Configuration
-        if "network_interfaces" in data and data["network_interfaces"]:
+        if config.import_network and "network_interfaces" in data and data["network_interfaces"]:
             from .network import get_interfaces, InterfaceConfig
             
             # Get current interfaces to detect IP changes
@@ -431,7 +468,7 @@ def import_configuration(
                 ))
         
         # Import Hostname
-        if "os_hostname" in data and data["os_hostname"]:
+        if config.import_hostname and "os_hostname" in data and data["os_hostname"]:
             hostname = data["os_hostname"]
             
             # Update database
