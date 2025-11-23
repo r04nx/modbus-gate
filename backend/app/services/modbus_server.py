@@ -31,7 +31,9 @@ class ModbusServerService:
             co=ModbusSequentialDataBlock(0, [0]*10000),
             hr=ModbusSequentialDataBlock(0, [0]*10000),
             ir=ModbusSequentialDataBlock(0, [0]*10000))
-        self.context = ModbusServerContext(slaves=self.store, single=True)
+        # ModbusServerContext expects a dict mapping slave_id to ModbusSlaveContext
+        # For single slave mode, we use slave_id=1
+        self.context = ModbusServerContext(slaves={1: self.store}, single=False)
         
         self.identity = ModbusDeviceIdentification()
         self.identity.VendorName = 'VistaIOT'
