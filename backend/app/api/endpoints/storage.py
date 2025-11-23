@@ -126,8 +126,12 @@ def get_storage_usage(
         stat = shutil.disk_usage(".")
         
         # Get database file size
-        db_path = "backend/vistaiot.db"
-        db_size = os.path.getsize(db_path) if os.path.exists(db_path) else 0
+        db_paths = ["vistaiot.db", "backend/vistaiot.db", "/opt/modbus-gate/backend/vistaiot.db"]
+        db_size = 0
+        for path in db_paths:
+            if os.path.exists(path):
+                db_size = os.path.getsize(path)
+                break
         
         return StorageUsageResponse(
             total_bytes=stat.total,
