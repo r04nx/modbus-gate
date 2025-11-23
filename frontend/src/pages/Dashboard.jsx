@@ -40,11 +40,22 @@ const Dashboard = () => {
         networkInterfaces: []
     });
 
-    const [history, setHistory] = useState({
-        cpu: [],
-        ram: [],
-        disk: [],
-        uptime: []
+    const [history, setHistory] = useState(() => {
+        // Load history from localStorage on mount
+        try {
+            const saved = localStorage.getItem('dashboard_history');
+            if (saved) {
+                return JSON.parse(saved);
+            }
+        } catch (e) {
+            console.error('Failed to load history from localStorage', e);
+        }
+        return {
+            cpu: [],
+            ram: [],
+            disk: [],
+            uptime: []
+        };
     });
 
     const MAX_HISTORY = 20; // Keep last 20 data points
@@ -82,12 +93,23 @@ const Dashboard = () => {
                 setMetrics({ cpu, ram, disk, uptime, hostname, os, ipAddress, networkInterfaces });
 
                 // Update history
-                setHistory(prev => ({
-                    cpu: [...prev.cpu.slice(-MAX_HISTORY + 1), cpu],
-                    ram: [...prev.ram.slice(-MAX_HISTORY + 1), ram],
-                    disk: [...prev.disk.slice(-MAX_HISTORY + 1), disk],
-                    uptime: [...prev.uptime.slice(-MAX_HISTORY + 1), uptime]
-                }));
+                setHistory(prev => {
+                    const newHistory = {
+                        cpu: [...prev.cpu.slice(-MAX_HISTORY + 1), cpu],
+                        ram: [...prev.ram.slice(-MAX_HISTORY + 1), ram],
+                        disk: [...prev.disk.slice(-MAX_HISTORY + 1), disk],
+                        uptime: [...prev.uptime.slice(-MAX_HISTORY + 1), uptime]
+                    };
+
+                    // Save to localStorage
+                    try {
+                        localStorage.setItem('dashboard_history', JSON.stringify(newHistory));
+                    } catch (e) {
+                        console.error('Failed to save history to localStorage', e);
+                    }
+
+                    return newHistory;
+                });
             } catch (error) {
                 console.error("Failed to fetch metrics", error);
             }
