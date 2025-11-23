@@ -1,6 +1,8 @@
-import { getServerConfig } from '../services/api';
-
-// ... existing imports ...
+import React, { useEffect, useState } from 'react';
+import { getTagValues, getServerConfig } from '../services/api';
+import { Cpu, HardDrive, Activity, Clock, Wifi, Server } from 'lucide-react';
+import Sparkline from '../components/Sparkline';
+import clsx from 'clsx';
 
 const Dashboard = () => {
     // ... existing state ...
@@ -48,7 +50,7 @@ const Dashboard = () => {
                 <div className="bg-surface/50 backdrop-blur-md border border-surfaceHighlight rounded-2xl p-6">
                     <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
                         <Wifi size={20} className="text-accent" />
-                        Network Status
+                        Server Status
                     </h3>
                     <div className="space-y-4">
                         <div className="flex justify-between items-center p-3 bg-surfaceHighlight/20 rounded-xl">
