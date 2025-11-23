@@ -39,7 +39,6 @@ const Layout = ({ children }) => {
         navItems.push({ path: '/terminal', label: 'Terminal', icon: Terminal });
     }
 
-    navItems.push({ path: '/config', label: 'Config', icon: Download });
     navItems.push({ path: '/settings', label: 'Settings', icon: Settings });
 
     return (
