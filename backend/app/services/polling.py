@@ -139,11 +139,24 @@ class PollingEngine:
     async def _handle_error(self, tag, error_msg):
         """
         Handle polling error by applying fallback logic if configured.
+        Only applies to IO tags - SYSTEM and SERVER tags return None on error.
         """
         value = None
         
-        # Check fallback configuration
-        fallback_type = tag.fallback_type or 'last_success'
+        # Only apply fallback mechanism to IO tags
+        # SYSTEM and SERVER tags should return None on error
+        if tag.type != 'IO':
+            # For non-IO tags, just update with None and BAD quality
+            await self.store.update_tag(tag.tag_id, None, quality="BAD", error_message=error_msg)
+            return
+        
+        # Check fallback configuration for IO tags
+        fallback_type = tag.fallback_type or 'none'
+        
+        # If fallback is 'none', return None
+        if fallback_type == 'none':
+            await self.store.update_tag(tag.tag_id, None, quality="BAD", error_message=error_msg)
+            return
         
         if fallback_type == 'default' and tag.fallback_value:
             # Use configured default value
