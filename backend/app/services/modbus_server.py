@@ -1,9 +1,10 @@
 import asyncio
 import logging
-from pymodbus.server.async_io import StartAsyncTcpServer
-from pymodbus.datastore import ModbusSlaveContext, ModbusServerContext
+from pymodbus.server import StartAsyncTcpServer
+from pymodbus.datastore import ModbusServerContext
+from pymodbus.datastore.context import ModbusDeviceContext
 from pymodbus.datastore import ModbusSequentialDataBlock
-from pymodbus.device import ModbusDeviceIdentification
+from pymodbus import ModbusDeviceIdentification
 from app.core.store import GlobalDataStore
 
 # Custom DataBlock to link with GlobalDataStore
@@ -25,15 +26,20 @@ class GlobalStoreDataBlock(ModbusSequentialDataBlock):
 class ModbusServerService:
     def __init__(self):
         self.port = 5020
+        self.server = None
         self.server_task = None
-        self.store = ModbusSlaveContext(
+        self.monitor_task = None
+        self.is_running = False
+        
+        # In pymodbus 3.x, ModbusSlaveContext is now ModbusDeviceContext
+        self.store = ModbusDeviceContext(
             di=ModbusSequentialDataBlock(0, [0]*10000),
             co=ModbusSequentialDataBlock(0, [0]*10000),
             hr=ModbusSequentialDataBlock(0, [0]*10000),
             ir=ModbusSequentialDataBlock(0, [0]*10000))
-        # ModbusServerContext expects a dict mapping slave_id to ModbusSlaveContext
+        # ModbusServerContext expects a dict mapping slave_id to ModbusDeviceContext
         # For single slave mode, we use slave_id=1
-        self.context = ModbusServerContext(slaves={1: self.store}, single=False)
+        self.context = ModbusServerContext(devices={1: self.store}, single=False)
         
         self.identity = ModbusDeviceIdentification()
         self.identity.VendorName = 'VistaIOT'
@@ -44,102 +50,143 @@ class ModbusServerService:
         self.identity.MajorMinorRevision = '1.0.0'
 
     async def start(self):
-        # Load config from DB
-        await self._load_config()
-        
-        # Start the server in a background task
-        self.server_task = asyncio.create_task(self._run_server())
-        # Start sync task
-        asyncio.create_task(self._sync_store())
+        # Start the monitoring task which handles server lifecycle
+        self.monitor_task = asyncio.create_task(self._monitor_loop())
 
-    async def _load_config(self):
-        from app.core.database import SessionLocal
-        from app.models import models
+    async def stop(self):
+        if self.server:
+            logging.info("Stopping Modbus Server...")
+            try:
+                await self.server.shutdown()
+            except Exception as e:
+                logging.error(f"Error stopping Modbus Server: {e}")
+            self.server = None
         
-        try:
-            db = SessionLocal()
-            config = db.query(models.ServerConfig).filter(models.ServerConfig.type == "MODBUS_SERVER").first()
-            if config and config.enabled:
-                self.port = int(config.config.get("port", 5020))
-            db.close()
-        except Exception as e:
-            logging.error(f"Error loading Modbus Server config: {e}")
+        if self.server_task:
+            self.server_task.cancel()
+            try:
+                await self.server_task
+            except asyncio.CancelledError:
+                pass
+            self.server_task = None
+        
+        self.is_running = False
+        logging.info("Modbus Server stopped")
 
     async def _run_server(self):
-        logging.info(f"Starting Modbus Server on port {self.port}")
-        await StartAsyncTcpServer(context=self.context, identity=self.identity, address=("0.0.0.0", self.port))
+        try:
+            logging.info(f"Starting Modbus Server on port {self.port}")
+            from pymodbus.server import ModbusTcpServer
+            self.server = ModbusTcpServer(context=self.context, identity=self.identity, address=("0.0.0.0", self.port))
+            self.is_running = True
+            await self.server.serve_forever()
+        except asyncio.CancelledError:
+            logging.info("Modbus Server task cancelled")
+        except Exception as e:
+            logging.error(f"Modbus Server crashed: {e}")
+            self.is_running = False
+            self.server = None
 
-    async def _sync_store(self):
-        # This task syncs GlobalDataStore values to Modbus Registers based on explicit mappings
+    async def _monitor_loop(self):
         from app.core.database import SessionLocal
         from app.models import models
-        
-        global_store = GlobalDataStore()
         
         while True:
             try:
-                # Reload config periodically to catch updates
-                # In a production system, we might want a more event-driven approach
-                mappings = []
+                # 1. Check Configuration
+                db_config = None
                 try:
                     db = SessionLocal()
                     config = db.query(models.ServerConfig).filter(models.ServerConfig.type == "MODBUS_SERVER").first()
-                    if config and config.enabled:
-                        mappings = config.config.get("mappings", [])
+                    if config:
+                        db_config = {
+                            "enabled": config.enabled,
+                            "port": int(config.config.get("port", 5020)),
+                            "mappings": config.config.get("mappings", [])
+                        }
                     db.close()
                 except Exception as e:
-                    logging.error(f"Error reloading Modbus config: {e}")
-
-                if not mappings:
-                    await asyncio.sleep(2)
+                    logging.error(f"Error checking Modbus config: {e}")
+                    await asyncio.sleep(5)
                     continue
 
-                tags = await global_store.get_all_tags()
-                
-                for mapping in mappings:
-                    tag_id = mapping.get("tag_id")
-                    if tag_id not in tags:
-                        continue
-                        
-                    tag_val = tags[tag_id]
-                    val = tag_val.value
-                    
-                    # Skip if value is None
-                    if val is None:
-                        continue
+                if not db_config:
+                    await asyncio.sleep(5)
+                    continue
 
-                    reg_type = mapping.get("register_type", "HR")
-                    addr = int(mapping.get("address", 1))
-                    data_type = mapping.get("data_type", "INT16")
-                    unit_id = int(mapping.get("unit_id", 1)) # Currently we only support single context, so unit_id is ignored or used for routing if we had multiple slaves
-                    
-                    try:
-                        # Convert value based on data type
-                        # This is a simplified conversion. 
-                        # For FLOAT32/INT32/INT64 we need to split into registers.
-                        
-                        # Helper to convert value to registers
-                        registers = self._convert_to_registers(val, data_type)
-                        
-                        if reg_type == "HR":
-                            self.store.setValues(3, addr, registers)
-                        elif reg_type == "IR":
-                            self.store.setValues(4, addr, registers)
-                        elif reg_type == "CO":
-                            # Coils expect booleans
-                            bool_val = [bool(val)]
-                            self.store.setValues(1, addr, bool_val)
-                        elif reg_type == "DI":
-                            bool_val = [bool(val)]
-                            self.store.setValues(2, addr, bool_val)
-                            
-                    except Exception as e:
-                        # logging.error(f"Error syncing tag {tag_id}: {e}")
-                        pass
-                        
+                # 2. Manage Lifecycle
+                should_run = db_config["enabled"]
+                target_port = db_config["port"]
+
+                if should_run:
+                    if not self.is_running:
+                        # Start server
+                        self.port = target_port
+                        self.server_task = asyncio.create_task(self._run_server())
+                        # Wait a bit for it to start
+                        await asyncio.sleep(1)
+                    elif self.port != target_port:
+                        # Restart needed due to port change
+                        logging.info(f"Port changed from {self.port} to {target_port}. Restarting...")
+                        await self.stop()
+                        self.port = target_port
+                        self.server_task = asyncio.create_task(self._run_server())
+                        await asyncio.sleep(1)
+                else:
+                    if self.is_running:
+                        # Stop server
+                        logging.info("Modbus Server disabled. Stopping...")
+                        await self.stop()
+
+                # 3. Sync Tags (only if running)
+                if self.is_running:
+                    await self._sync_tags(db_config["mappings"])
+
             except Exception as e:
-                logging.error(f"Error syncing Modbus store: {e}")
-            await asyncio.sleep(0.5)
+                logging.error(f"Error in Modbus monitor loop: {e}")
+            
+            await asyncio.sleep(1)
+
+    async def _sync_tags(self, mappings):
+        # This task syncs GlobalDataStore values to Modbus Registers based on explicit mappings
+        global_store = GlobalDataStore()
+        tags = await global_store.get_all_tags()
+        
+        for mapping in mappings:
+            tag_id = mapping.get("tag_id")
+            if tag_id not in tags:
+                continue
+                
+            tag_val = tags[tag_id]
+            val = tag_val.value
+            
+            # Skip if value is None
+            if val is None:
+                continue
+
+            reg_type = mapping.get("register_type", "HR")
+            addr = int(mapping.get("address", 1))
+            data_type = mapping.get("data_type", "INT16")
+            
+            try:
+                # Helper to convert value to registers
+                registers = self._convert_to_registers(val, data_type)
+                
+                if reg_type == "HR":
+                    self.store.setValues(3, addr, registers)
+                elif reg_type == "IR":
+                    self.store.setValues(4, addr, registers)
+                elif reg_type == "CO":
+                    # Coils expect booleans
+                    bool_val = [bool(val)]
+                    self.store.setValues(1, addr, bool_val)
+                elif reg_type == "DI":
+                    bool_val = [bool(val)]
+                    self.store.setValues(2, addr, bool_val)
+                    
+            except Exception as e:
+                # logging.error(f"Error syncing tag {tag_id}: {e}")
+                pass
 
     def _convert_to_registers(self, value, data_type):
         import struct

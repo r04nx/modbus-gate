@@ -9,8 +9,44 @@ from app.core.store import GlobalDataStore
 router = APIRouter()
 
 @router.get("/", response_model=List[schemas.Tag])
-def read_tags(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+async def read_tags(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     tags = db.query(models.Tag).offset(skip).limit(limit).all()
+    
+    # Add System Tags from GlobalDataStore
+    # Only add them if we are on the first page (skip=0) to avoid duplication across pages
+    # or just add them always if the client doesn't paginate properly (which seems to be the case)
+    # For now, we'll add them if skip == 0
+    if skip == 0:
+        store = GlobalDataStore()
+        all_values = await store.get_all_tags()
+        
+        system_tags = []
+        idx = -1
+        for tag_id in all_values:
+            if tag_id.startswith("SYS_"):
+                system_tags.append({
+                    "id": idx,
+                    "tag_id": tag_id,
+                    "name": tag_id.replace("SYS_", "").replace("_", " ").title(),
+                    "description": "System Tag",
+                    "type": "SYSTEM",
+                    "enabled": True,
+                    "device_id": None,
+                    "address": None,
+                    "data_type": "N/A",
+                    "params": None,
+                    "initial_value": None,
+                    "calculation_formula": None,
+                    "variable_mappings": None,
+                    "fallback_type": "last_success",
+                    "fallback_value": None
+                })
+                idx -= 1
+        
+        # Combine DB tags and System tags
+        # Note: This returns a mix of ORM objects and dicts, which Pydantic handles
+        return list(tags) + system_tags
+        
     return tags
 
 @router.post("/", response_model=schemas.Tag)
