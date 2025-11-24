@@ -34,7 +34,7 @@ export const importTags = (type, file) => {
 };
 
 // Calculation operations
-export const getOperations = () => api.get('/calc/operations');
+export const getOperations = () => api.get('/operations');
 
 // Logs
 export const getLogs = (level = null, limit = 500) => {
