@@ -1,0 +1,17 @@
+[Unit]
+Description=Modbus Gate Backend Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/modbus-gate/backend
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+ExecStart=/opt/modbus-gate/backend/venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

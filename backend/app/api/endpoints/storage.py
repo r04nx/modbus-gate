@@ -53,6 +53,7 @@ class StorageUsageResponse(BaseModel):
     free_bytes: int
     percent_used: float
     database_size_bytes: int
+    buffer_db_size_bytes: int
 
 
 class BufferedFileResponse(BaseModel):
@@ -125,7 +126,7 @@ def get_storage_usage(
         # Get disk usage for the current directory
         stat = shutil.disk_usage(".")
         
-        # Get database file size
+        # Get main database file size
         db_paths = ["vistaiot.db", "backend/vistaiot.db", "/opt/modbus-gate/backend/vistaiot.db"]
         db_size = 0
         for path in db_paths:
@@ -133,12 +134,19 @@ def get_storage_usage(
                 db_size = os.path.getsize(path)
                 break
         
+        # Get buffer database file size
+        buffer_db_path = "/opt/modbus-gate/buffer.db"
+        buffer_db_size = 0
+        if os.path.exists(buffer_db_path):
+            buffer_db_size = os.path.getsize(buffer_db_path)
+        
         return StorageUsageResponse(
             total_bytes=stat.total,
             used_bytes=stat.used,
             free_bytes=stat.free,
             percent_used=(stat.used / stat.total) * 100,
-            database_size_bytes=db_size
+            database_size_bytes=db_size,
+            buffer_db_size_bytes=buffer_db_size
         )
     except Exception as e:
         raise HTTPException(

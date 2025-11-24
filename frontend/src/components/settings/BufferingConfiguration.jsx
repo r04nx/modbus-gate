@@ -1,8 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { HardDrive, Database, Download, Trash2, FileText } from 'lucide-react';
+import { Database, Wifi, WifiOff, Globe, Play, Square, ExternalLink, Activity, HardDrive, FileText, Download, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { getBufferingStatus, updateBufferingConfig, setManualBuffering } from '../../services/api';
 import axios from 'axios';
+import clsx from 'clsx';
 
-const DataStoragePolicy = () => {
+const BufferingConfiguration = () => {
+    // Buffering Service State
+    const [status, setStatus] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [configLoading, setConfigLoading] = useState(false);
+
+    // Storage Policy State
     const [policy, setPolicy] = useState({
         enabled: false,
         policy_type: 'storage',
@@ -11,21 +20,31 @@ const DataStoragePolicy = () => {
         time_unit: 'days',
         northbound_interface: 'MQTT'
     });
-    const [usage, setUsage] = useState(null);
     const [bufferedFiles, setBufferedFiles] = useState([]);
-    const [loading, setLoading] = useState(false);
+    const [policyLoading, setPolicyLoading] = useState(false);
 
-    // Use dynamic API base URL instead of hardcoded localhost
+    // API Config
     const API_HOST = window.location.hostname;
     const API_PORT = '8000';
     const API_BASE = `http://${API_HOST}:${API_PORT}/api/v1`;
     const getAuthHeader = () => ({ Authorization: `Basic ${btoa('admin:admin')}` });
 
     useEffect(() => {
+        fetchStatus();
         fetchPolicy();
-        fetchUsage();
         fetchBufferedFiles();
+        const interval = setInterval(fetchStatus, 2000);
+        return () => clearInterval(interval);
     }, []);
+
+    const fetchStatus = async () => {
+        try {
+            const { data } = await getBufferingStatus();
+            setStatus(data);
+        } catch (error) {
+            console.error("Failed to fetch buffering status", error);
+        }
+    };
 
     const fetchPolicy = async () => {
         try {
@@ -36,41 +55,52 @@ const DataStoragePolicy = () => {
         }
     };
 
-    const fetchUsage = async () => {
-        try {
-            const res = await axios.get(`${API_BASE}/storage/usage`, { headers: getAuthHeader() });
-            setUsage(res.data);
-        } catch (error) {
-            console.error('Failed to fetch usage:', error);
-        }
-    };
-
-    const handleSave = async () => {
-        try {
-            setLoading(true);
-            await axios.put(`${API_BASE}/storage/policy`, policy, { headers: getAuthHeader() });
-            alert('Storage policy updated successfully');
-        } catch (error) {
-            alert(`Failed to update policy: ${error.response?.data?.detail || error.message}`);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const formatBytes = (bytes) => {
-        if (bytes === 0) return '0 B';
-        const k = 1024;
-        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
-    };
-
     const fetchBufferedFiles = async () => {
         try {
             const res = await axios.get(`${API_BASE}/storage/buffered-files`, { headers: getAuthHeader() });
             setBufferedFiles(res.data);
         } catch (error) {
             console.error('Failed to fetch buffered files:', error);
+        }
+    };
+
+    const handleToggleTrigger = async (key) => {
+        if (!status) return;
+        try {
+            setConfigLoading(true);
+            const newConfig = { ...status.config, [key]: !status.config[key] };
+            const { data } = await updateBufferingConfig(newConfig);
+            setStatus(data);
+        } catch (error) {
+            console.error("Failed to update config", error);
+        } finally {
+            setConfigLoading(false);
+        }
+    };
+
+    const handleManualControl = async (action) => {
+        try {
+            setLoading(true);
+            const { data } = await setManualBuffering(action);
+            if (data.success) {
+                setStatus(data.status);
+            }
+        } catch (error) {
+            console.error("Failed to set manual buffering", error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleSavePolicy = async () => {
+        try {
+            setPolicyLoading(true);
+            await axios.put(`${API_BASE}/storage/policy`, policy, { headers: getAuthHeader() });
+            alert('Storage policy updated successfully');
+        } catch (error) {
+            alert(`Failed to update policy: ${error.response?.data?.detail || error.message}`);
+        } finally {
+            setPolicyLoading(false);
         }
     };
 
@@ -83,8 +113,6 @@ const DataStoragePolicy = () => {
                     responseType: 'blob'
                 }
             );
-
-            // Create download link
             const url = window.URL.createObjectURL(new Blob([response.data]));
             const link = document.createElement('a');
             link.href = url;
@@ -99,60 +127,166 @@ const DataStoragePolicy = () => {
 
     const handleDeleteFile = async (filename) => {
         if (!confirm(`Delete buffered file "${filename}"?`)) return;
-
         try {
             await axios.delete(`${API_BASE}/storage/buffered-files/${filename}`, { headers: getAuthHeader() });
-            fetchBufferedFiles(); // Refresh list
+            fetchBufferedFiles();
         } catch (error) {
             alert(`Failed to delete file: ${error.response?.data?.detail || error.message}`);
         }
     };
 
+    if (!status) return <div className="p-6 text-text-secondary">Loading buffering status...</div>;
+
     return (
-        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            {/* Current Storage Usage */}
-            {usage && (
-                <div className="bg-surfaceHighlight/10 rounded-2xl p-6 border border-surfaceHighlight/30">
-                    <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                        <Database className="w-5 h-5 text-orange-400" />
-                        Current Storage Usage
-                    </h3>
-                    <div className="space-y-4">
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                            <div className="bg-surfaceHighlight/5 rounded-xl p-4">
-                                <span className="text-text-secondary text-sm block mb-1">Total Space</span>
-                                <span className="text-white font-bold text-lg">{formatBytes(usage.total_bytes)}</span>
-                            </div>
-                            <div className="bg-surfaceHighlight/5 rounded-xl p-4">
-                                <span className="text-text-secondary text-sm block mb-1">Used Space</span>
-                                <span className="text-white font-bold text-lg">{formatBytes(usage.used_bytes)}</span>
-                            </div>
-                            <div className="bg-surfaceHighlight/5 rounded-xl p-4">
-                                <span className="text-text-secondary text-sm block mb-1">Free Space</span>
-                                <span className="text-white font-bold text-lg">{formatBytes(usage.free_bytes)}</span>
-                            </div>
-                            <div className="bg-surfaceHighlight/5 rounded-xl p-4">
-                                <span className="text-text-secondary text-sm block mb-1">Main DB Size</span>
-                                <span className="text-white font-bold text-lg">{formatBytes(usage.database_size_bytes)}</span>
-                            </div>
-                            <div className="bg-surfaceHighlight/5 rounded-xl p-4 border border-pink-500/20">
-                                <span className="text-text-secondary text-sm block mb-1">Buffer DB Size</span>
-                                <span className="text-pink-400 font-bold text-lg">{formatBytes(usage.buffer_db_size_bytes || 0)}</span>
-                            </div>
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* Status Card */}
+            <div className={clsx(
+                "rounded-2xl p-6 border transition-all duration-300",
+                status.active
+                    ? "bg-success/10 border-success/30 shadow-[0_0_20px_rgba(34,197,94,0.1)]"
+                    : "bg-surfaceHighlight/10 border-surfaceHighlight/30"
+            )}>
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                        <div className={clsx(
+                            "w-12 h-12 rounded-xl flex items-center justify-center",
+                            status.active ? "bg-success text-white" : "bg-surfaceHighlight/30 text-text-secondary"
+                        )}>
+                            <Database size={24} className={status.active ? "animate-pulse" : ""} />
                         </div>
-                        <div className="w-full bg-surfaceHighlight/20 rounded-full h-6 overflow-hidden border border-surfaceHighlight/30">
-                            <div
-                                className={`h-full transition-all duration-500 ${usage.percent_used > 80 ? 'bg-gradient-to-r from-red-500 to-red-600' : 'bg-gradient-to-r from-orange-500 to-orange-600'
-                                    }`}
-                                style={{ width: `${usage.percent_used}%` }}
-                            />
+                        <div>
+                            <h3 className="text-lg font-bold text-white">Local Data Buffering</h3>
+                            <p className={clsx("font-medium", status.active ? "text-success" : "text-text-secondary")}>
+                                {status.active ? "Buffering Active - Recording Data" : "Buffering Inactive"}
+                            </p>
                         </div>
-                        <p className="text-center text-text-secondary text-sm font-medium">{usage.percent_used.toFixed(1)}% Used</p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                        {status.active ? (
+                            <button
+                                onClick={() => handleManualControl('stop')}
+                                disabled={loading}
+                                className="flex items-center gap-2 bg-error hover:bg-errorHover text-white px-4 py-2 rounded-xl font-medium transition-all shadow-lg"
+                            >
+                                <Square size={18} fill="currentColor" />
+                                Stop Recording
+                            </button>
+                        ) : (
+                            <button
+                                onClick={() => handleManualControl('start')}
+                                disabled={loading}
+                                className="flex items-center gap-2 bg-primary hover:bg-primaryHover text-white px-4 py-2 rounded-xl font-medium transition-all shadow-lg"
+                            >
+                                <Play size={18} fill="currentColor" />
+                                Start Recording
+                            </button>
+                        )}
                     </div>
                 </div>
-            )}
+            </div>
 
-            {/* Buffering Policy */}
+            {/* Triggers Configuration */}
+            <div className="bg-surfaceHighlight/10 rounded-2xl p-6 border border-surfaceHighlight/30">
+                <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-purple-400" />
+                    Automatic Triggers
+                </h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Internet Trigger */}
+                    <label className={clsx(
+                        "flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all",
+                        status.config.internet_trigger
+                            ? "bg-purple-500/10 border-purple-500/30 hover:bg-purple-500/20"
+                            : "bg-surfaceHighlight/5 border-surfaceHighlight/20 hover:border-surfaceHighlight/40"
+                    )}>
+                        <input
+                            type="checkbox"
+                            checked={status.config.internet_trigger}
+                            onChange={() => handleToggleTrigger('internet_trigger')}
+                            disabled={configLoading}
+                            className="mt-1 w-5 h-5 rounded border-surfaceHighlight bg-surfaceHighlight/20 text-purple-500 focus:ring-purple-500 focus:ring-offset-0"
+                        />
+                        <div className="flex-1">
+                            <div className="flex items-center gap-2 font-medium text-white mb-1">
+                                <Globe size={16} className="text-blue-400" />
+                                Internet Loss
+                            </div>
+                            <p className="text-xs text-text-secondary">
+                                Trigger when ping to 8.8.8.8 fails.
+                            </p>
+                            {status.triggers.internet && (
+                                <div className="mt-2 text-xs font-bold text-error flex items-center gap-1">
+                                    <WifiOff size={12} /> Disconnected
+                                </div>
+                            )}
+                        </div>
+                    </label>
+
+                    {/* Gateway Trigger */}
+                    <label className={clsx(
+                        "flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all",
+                        status.config.gateway_trigger
+                            ? "bg-purple-500/10 border-purple-500/30 hover:bg-purple-500/20"
+                            : "bg-surfaceHighlight/5 border-surfaceHighlight/20 hover:border-surfaceHighlight/40"
+                    )}>
+                        <input
+                            type="checkbox"
+                            checked={status.config.gateway_trigger}
+                            onChange={() => handleToggleTrigger('gateway_trigger')}
+                            disabled={configLoading}
+                            className="mt-1 w-5 h-5 rounded border-surfaceHighlight bg-surfaceHighlight/20 text-purple-500 focus:ring-purple-500 focus:ring-offset-0"
+                        />
+                        <div className="flex-1">
+                            <div className="flex items-center gap-2 font-medium text-white mb-1">
+                                <Wifi size={16} className="text-emerald-400" />
+                                Gateway Loss
+                            </div>
+                            <p className="text-xs text-text-secondary">
+                                Trigger when default gateway is unreachable.
+                            </p>
+                            {status.triggers.gateway && (
+                                <div className="mt-2 text-xs font-bold text-error flex items-center gap-1">
+                                    <WifiOff size={12} /> Disconnected
+                                </div>
+                            )}
+                        </div>
+                    </label>
+
+                    {/* MQTT Trigger */}
+                    <label className={clsx(
+                        "flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all",
+                        status.config.mqtt_trigger
+                            ? "bg-purple-500/10 border-purple-500/30 hover:bg-purple-500/20"
+                            : "bg-surfaceHighlight/5 border-surfaceHighlight/20 hover:border-surfaceHighlight/40"
+                    )}>
+                        <input
+                            type="checkbox"
+                            checked={status.config.mqtt_trigger}
+                            onChange={() => handleToggleTrigger('mqtt_trigger')}
+                            disabled={configLoading}
+                            className="mt-1 w-5 h-5 rounded border-surfaceHighlight bg-surfaceHighlight/20 text-purple-500 focus:ring-purple-500 focus:ring-offset-0"
+                        />
+                        <div className="flex-1">
+                            <div className="flex items-center gap-2 font-medium text-white mb-1">
+                                <Database size={16} className="text-orange-400" />
+                                MQTT Disconnect
+                            </div>
+                            <p className="text-xs text-text-secondary">
+                                Trigger when MQTT broker connection is lost.
+                            </p>
+                            {status.triggers.mqtt && (
+                                <div className="mt-2 text-xs font-bold text-error flex items-center gap-1">
+                                    <WifiOff size={12} /> Disconnected
+                                </div>
+                            )}
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            {/* Storage Policy Configuration (Merged from DataStoragePolicy) */}
             <div className="bg-surfaceHighlight/10 rounded-2xl p-6 border border-surfaceHighlight/30">
                 <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
                     <HardDrive className="w-5 h-5 text-orange-400" />
@@ -245,11 +379,11 @@ const DataStoragePolicy = () => {
                     )}
 
                     <button
-                        onClick={handleSave}
-                        disabled={loading}
+                        onClick={handleSavePolicy}
+                        disabled={policyLoading}
                         className="w-full bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 border border-orange-500/30 px-4 py-3 rounded-xl transition-all disabled:opacity-50 font-medium"
                     >
-                        {loading ? 'Saving...' : 'Save Policy'}
+                        {policyLoading ? 'Saving...' : 'Save Policy'}
                     </button>
                 </div>
             </div>
@@ -300,8 +434,19 @@ const DataStoragePolicy = () => {
                     </div>
                 )}
             </div>
+
+            {/* View Data Link */}
+            <div className="flex justify-end">
+                <Link
+                    to="/buffered-data"
+                    className="flex items-center gap-2 text-primary hover:text-white transition-colors font-medium group"
+                >
+                    View Buffered Data Visualization
+                    <ExternalLink size={16} className="group-hover:translate-x-1 transition-transform" />
+                </Link>
+            </div>
         </div>
     );
 };
 
-export default DataStoragePolicy;
+export default BufferingConfiguration;

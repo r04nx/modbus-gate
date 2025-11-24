@@ -73,6 +73,10 @@ async def startup_event():
     mqtt_publisher = MQTTPublisherService()
     await mqtt_publisher.start()
 
+    # Start Buffering Service
+    from app.services.buffering_service import buffering_service
+    await buffering_service.start()
+
 @app.get("/")
 async def root():
     return {"message": "VistaIOT Backend is running"}

@@ -19,3 +19,6 @@ api_router.include_router(network.router, prefix="/network", tags=["network"])
 
 from app.api.endpoints import terminal
 api_router.include_router(terminal.router, prefix="/terminal", tags=["terminal"])
+
+from app.api.endpoints import buffering
+api_router.include_router(buffering.router, prefix="/buffering", tags=["buffering"])

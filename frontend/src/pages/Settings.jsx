@@ -5,6 +5,7 @@ import UserManagement from '../components/settings/UserManagement';
 import NetworkConfiguration from '../components/settings/NetworkConfiguration';
 import SystemSettings from '../components/settings/SystemSettings';
 import DataStoragePolicy from '../components/settings/DataStoragePolicy';
+import BufferingConfiguration from '../components/settings/BufferingConfiguration';
 
 const Settings = () => {
     const [activeTab, setActiveTab] = useState('config');
@@ -15,6 +16,7 @@ const Settings = () => {
         { id: 'network', label: 'Network', icon: Network, color: 'text-purple-400' },
         { id: 'system', label: 'System', icon: Server, color: 'text-emerald-400' },
         { id: 'storage', label: 'Storage Policy', icon: HardDrive, color: 'text-orange-400' },
+        { id: 'buffering', label: 'Local Buffering', icon: Database, color: 'text-pink-400' },
     ];
 
     return (
@@ -31,20 +33,20 @@ const Settings = () => {
             </div>
 
             {/* Tab Navigation */}
-            <div className="bg-surfaceHighlight/10 rounded-2xl p-2 flex gap-2 border border-surfaceHighlight/30">
+            <div className="bg-surfaceHighlight/10 rounded-2xl p-2 flex gap-2 border border-surfaceHighlight/30 overflow-x-auto">
                 {tabs.map((tab) => {
                     const Icon = tab.icon;
                     return (
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
-                            className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition-all duration-300 ${activeTab === tab.id
-                                    ? 'bg-surfaceHighlight/30 text-white shadow-lg border border-surfaceHighlight/50'
-                                    : 'text-text-secondary hover:text-white hover:bg-surfaceHighlight/10'
+                            className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition-all duration-300 ${activeTab === tab.id
+                                ? 'bg-surfaceHighlight/30 text-white shadow-lg border border-surfaceHighlight/50'
+                                : 'text-text-secondary hover:text-white hover:bg-surfaceHighlight/10'
                                 }`}
                         >
                             <Icon className={`w-5 h-5 ${activeTab === tab.id ? tab.color : ''}`} />
-                            <span className="font-medium">{tab.label}</span>
+                            <span className="font-medium whitespace-nowrap">{tab.label}</span>
                         </button>
                     );
                 })}
@@ -57,6 +59,7 @@ const Settings = () => {
                 {activeTab === 'network' && <NetworkConfiguration />}
                 {activeTab === 'system' && <SystemSettings />}
                 {activeTab === 'storage' && <DataStoragePolicy />}
+                {activeTab === 'buffering' && <BufferingConfiguration />}
             </div>
         </div>
     );

@@ -83,5 +83,14 @@ export const importConfiguration = (config) => api.post('/config/import', config
     headers: getAuthHeader()
 });
 
+// Buffering
+export const getBufferingStatus = () => api.get('/buffering/status');
+export const updateBufferingConfig = (config) => api.put('/buffering/config', config);
+export const setManualBuffering = (action) => api.post(`/buffering/manual/${action}`);
+export const getBufferedData = (params) => api.get('/buffering/data', { params });
+export const exportBufferedData = (params) => api.get('/buffering/export', { params, responseType: 'blob' });
+export const clearBufferedData = () => api.delete('/buffering/data');
+export const getBufferedTags = () => api.get('/buffering/tags');
+
 export default api;
 

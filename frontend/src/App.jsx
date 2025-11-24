@@ -9,6 +9,7 @@ import Logs from './pages/Logs';
 import Servers from './pages/Servers'; // Added Servers import
 import Settings from './pages/Settings';
 import Terminal from './pages/Terminal';
+import BufferedData from './pages/BufferedData';
 
 import Layout from './components/Layout';
 
@@ -25,6 +26,7 @@ function App() {
           <Route path="/logs" element={<Logs />} />
           <Route path="/terminal" element={<Terminal />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/buffered-data" element={<BufferedData />} />
         </Routes>
       </Layout>
     </Router>

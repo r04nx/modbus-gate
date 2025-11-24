@@ -122,6 +122,20 @@ class PollingEngine:
             
             await asyncio.sleep(1) # Global polling cycle tick
 
+            # Handle disabled devices - Update their tags to DISABLED
+            try:
+                db: Session = SessionLocal()
+                disabled_devices = db.query(models.Device).filter(models.Device.enabled == False).all()
+                for device in disabled_devices:
+                    for tag in device.tags:
+                        # Only update if not already DISABLED to avoid spamming store updates
+                        # (Store handles check, but we save DB query overhead if we could check here, 
+                        # but we can't easily check store without async call. Store check is fast.)
+                        await self.store.update_tag(tag.tag_id, None, quality="DISABLED", error_message="Device Disabled")
+                db.close()
+            except Exception as e:
+                logging.error(f"Error handling disabled devices: {e}")
+
     async def _handle_error(self, tag, error_msg):
         """
         Handle polling error by applying fallback logic if configured.
