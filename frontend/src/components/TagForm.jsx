@@ -24,7 +24,7 @@ const TagForm = ({ onClose, onSubmit, editTag = null, initialType = null }) => {
         initial_value: editTag?.initial_value || '',
         calculation_formula: editTag?.calculation_formula || '',
         variable_mappings: editTag?.variable_mappings || {},
-        fallback_type: editTag?.fallback_type || 'last_success',
+        fallback_type: editTag?.fallback_type || 'none',
         fallback_value: editTag?.fallback_value || ''
     });
 
@@ -638,6 +638,7 @@ const TagForm = ({ onClose, onSubmit, editTag = null, initialType = null }) => {
                                             onChange={handleChange}
                                             className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
                                         >
+                                            <option value="none">None (Return Null)</option>
                                             <option value="last_success">Use Last Success Value</option>
                                             <option value="default">Use Default Value</option>
                                         </select>
