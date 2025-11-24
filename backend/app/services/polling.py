@@ -122,6 +122,37 @@ class PollingEngine:
             
             await asyncio.sleep(1) # Global polling cycle tick
 
+    async def _handle_error(self, tag, error_msg):
+        """
+        Handle polling error by applying fallback logic if configured.
+        """
+        value = None
+        
+        # Check fallback configuration
+        fallback_type = tag.fallback_type or 'last_success'
+        
+        if fallback_type == 'default' and tag.fallback_value:
+            # Use configured default value
+            try:
+                # Try to parse as number first
+                val_float = float(tag.fallback_value)
+                if val_float.is_integer():
+                    value = int(val_float)
+                else:
+                    value = val_float
+            except (ValueError, AttributeError):
+                # Use as string
+                value = tag.fallback_value
+                
+        elif fallback_type == 'last_success':
+            # Get last known good value from store
+            current_tag = await self.store.get_tag(tag.tag_id)
+            if current_tag:
+                value = current_tag.value
+        
+        # Update store with fallback value (if any) and BAD quality
+        await self.store.update_tag(tag.tag_id, value, quality="BAD", error_message=error_msg)
+
     async def _poll_device(self, device: models.Device):
         try:
             if device.type == "MODBUS_TCP":
@@ -206,25 +237,25 @@ class PollingEngine:
                             else:
                                 error_msg = f"Modbus Error: {rr}" if rr else "Modbus Error: No response"
                                 logging.error(f"Modbus read error for tag {tag.tag_id}: {error_msg}")
-                                await self.store.update_tag(tag.tag_id, None, quality="BAD", error_message=error_msg)
+                                await self._handle_error(tag, error_msg)
                         except Exception as e:
                             error_msg = f"Modbus Exception: {str(e)}"
                             logging.error(f"Error reading tag {tag.tag_id}: {error_msg}")
-                            await self.store.update_tag(tag.tag_id, None, quality="BAD", error_message=error_msg)
+                            await self._handle_error(tag, error_msg)
             else:
                 # Connection failed
                 error_msg = f"Modbus Connection Error: Failed to connect to {params.get('host', 'device')}"
                 logging.error(error_msg)
                 for tag in device.tags:
                     if tag.enabled:
-                        await self.store.update_tag(tag.tag_id, None, quality="BAD", error_message=error_msg)
+                        await self._handle_error(tag, error_msg)
             client.close()
         except Exception as e:
             error_msg = f"Modbus Connection Exception: {str(e)}"
             logging.error(f"Error polling device {device.name}: {error_msg}")
             for tag in device.tags:
                 if tag.enabled:
-                    await self.store.update_tag(tag.tag_id, None, quality="BAD", error_message=error_msg)
+                    await self._handle_error(tag, error_msg)
 
     async def _poll_opc_ua(self, device: models.Device):
         params = device.connection_params
@@ -243,7 +274,7 @@ class PollingEngine:
                     except Exception as e:
                         error_msg = f"OPC UA Error: {str(e)}"
                         logging.error(f"Error reading OPC UA tag {tag.tag_id}: {error_msg}")
-                        await self.store.update_tag(tag.tag_id, None, quality="BAD", error_message=error_msg)
+                        await self._handle_error(tag, error_msg)
             
             await client.disconnect()
         except Exception as e:
@@ -251,7 +282,7 @@ class PollingEngine:
             logging.error(f"Error connecting to OPC UA {url}: {error_msg}")
             for tag in device.tags:
                 if tag.enabled:
-                    await self.store.update_tag(tag.tag_id, None, quality="BAD", error_message=error_msg)
+                    await self._handle_error(tag, error_msg)
 
     async def _poll_snmp(self, device: models.Device):
         """Poll SNMP device with support for v1, v2c, and v3"""
@@ -328,11 +359,11 @@ class PollingEngine:
                     if errorIndication:
                         error_msg = f"SNMP Network Error: {errorIndication}"
                         logging.error(error_msg)
-                        await self.store.update_tag(tag.tag_id, None, quality="BAD", error_message=error_msg)
+                        await self._handle_error(tag, error_msg)
                     elif errorStatus:
                         error_msg = f"SNMP Protocol Error: {errorStatus.prettyPrint()} at {errorIndex and varBinds[int(errorIndex) - 1][0] or '?'}"
                         logging.error(error_msg)
-                        await self.store.update_tag(tag.tag_id, None, quality="BAD", error_message=error_msg)
+                        await self._handle_error(tag, error_msg)
                     else:
                         for varBind in varBinds:
                             # varBind is (OID, Value)
@@ -342,14 +373,14 @@ class PollingEngine:
                             # Check for SNMP exception values
                             if "No Such Instance" in val_str or "No Such Object" in val_str:
                                 error_msg = f"SNMP Error: {val_str}"
-                                await self.store.update_tag(tag.tag_id, None, quality="BAD", error_message=error_msg)
+                                await self._handle_error(tag, error_msg)
                             else:
                                 # Convert SNMP types to python types if needed
                                 await self.store.update_tag(tag.tag_id, str(val))
                 except Exception as e:
                     error_msg = f"SNMP Exception: {str(e)}"
                     logging.error(f"Error reading SNMP tag {tag.tag_id}: {error_msg}")
-                    await self.store.update_tag(tag.tag_id, None, quality="BAD", error_message=error_msg)
+                    await self._handle_error(tag, error_msg)
 
     async def _poll_iec104(self, device: models.Device):
         # IEC104 is usually event-driven, but here we implement a simple poll (interrogation)
