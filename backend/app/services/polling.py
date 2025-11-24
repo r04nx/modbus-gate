@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import struct
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.models import models
@@ -16,6 +17,79 @@ import c104
 
 # Suppress verbose asyncua logging
 logging.getLogger('asyncua').setLevel(logging.WARNING)
+
+def convert_byte_order(registers, byte_order='ABCD', data_type='FLOAT32'):
+    """
+    Convert multi-register Modbus data based on byte order.
+    
+    Args:
+        registers: List of register values (16-bit each)
+        byte_order: 'ABCD', 'DCBA', 'BADC', or 'CDAB'
+        data_type: Data type to interpret as (FLOAT32, INT32, UINT32, FLOAT64, INT64, UINT64)
+    
+    Returns:
+        Converted value
+    """
+    if not registers or len(registers) == 0:
+        return None
+    
+    # For 32-bit types (2 registers)
+    if data_type in ['FLOAT32', 'INT32', 'UINT32']:
+        if len(registers) < 2:
+            return None
+        
+        # Get the two 16-bit registers
+        reg1, reg2 = registers[0], registers[1]
+        
+        # Convert to bytes based on byte order
+        if byte_order == 'ABCD':  # Big Endian (default)
+            bytes_data = struct.pack('>HH', reg1, reg2)
+        elif byte_order == 'DCBA':  # Little Endian
+            bytes_data = struct.pack('<HH', reg2, reg1)
+        elif byte_order == 'BADC':  # Mid-Big Endian
+            bytes_data = struct.pack('>HH', reg2, reg1)
+        elif byte_order == 'CDAB':  # Mid-Little Endian
+            bytes_data = struct.pack('<HH', reg1, reg2)
+        else:
+            bytes_data = struct.pack('>HH', reg1, reg2)  # Default to ABCD
+        
+        # Unpack based on data type
+        if data_type == 'FLOAT32':
+            return struct.unpack('>f' if byte_order in ['ABCD', 'BADC'] else '<f', bytes_data)[0]
+        elif data_type == 'INT32':
+            return struct.unpack('>i' if byte_order in ['ABCD', 'BADC'] else '<i', bytes_data)[0]
+        elif data_type == 'UINT32':
+            return struct.unpack('>I' if byte_order in ['ABCD', 'BADC'] else '<I', bytes_data)[0]
+    
+    # For 64-bit types (4 registers)
+    elif data_type in ['FLOAT64', 'INT64', 'UINT64']:
+        if len(registers) < 4:
+            return None
+        
+        reg1, reg2, reg3, reg4 = registers[0], registers[1], registers[2], registers[3]
+        
+        # Convert to bytes based on byte order
+        if byte_order == 'ABCD':  # Big Endian
+            bytes_data = struct.pack('>HHHH', reg1, reg2, reg3, reg4)
+        elif byte_order == 'DCBA':  # Little Endian
+            bytes_data = struct.pack('<HHHH', reg4, reg3, reg2, reg1)
+        elif byte_order == 'BADC':  # Mid-Big Endian
+            bytes_data = struct.pack('>HHHH', reg2, reg1, reg4, reg3)
+        elif byte_order == 'CDAB':  # Mid-Little Endian
+            bytes_data = struct.pack('<HHHH', reg3, reg4, reg1, reg2)
+        else:
+            bytes_data = struct.pack('>HHHH', reg1, reg2, reg3, reg4)
+        
+        # Unpack based on data type
+        if data_type == 'FLOAT64':
+            return struct.unpack('>d' if byte_order in ['ABCD', 'BADC'] else '<d', bytes_data)[0]
+        elif data_type == 'INT64':
+            return struct.unpack('>q' if byte_order in ['ABCD', 'BADC'] else '<q', bytes_data)[0]
+        elif data_type == 'UINT64':
+            return struct.unpack('>Q' if byte_order in ['ABCD', 'BADC'] else '<Q', bytes_data)[0]
+    
+    return None
+
 
 class PollingEngine:
     def __init__(self):
@@ -89,19 +163,45 @@ class PollingEngine:
                             addr = int(tag.address)
                             slave_id = params.get("slave_id", 1)
                             register_type = (tag.params or {}).get("register_type", "HOLDING")
+                            data_type = tag.data_type or "INT16"
+                            byte_order = (tag.params or {}).get("byte_order", "ABCD")
+                            
+                            # Determine how many registers to read based on data type
+                            register_count = 1
+                            if data_type in ['FLOAT32', 'INT32', 'UINT32']:
+                                register_count = 2
+                            elif data_type in ['FLOAT64', 'INT64', 'UINT64']:
+                                register_count = 4
                             
                             rr = None
                             if register_type == "HOLDING":
-                                rr = await client.read_holding_registers(addr, 1, slave=slave_id)
+                                rr = await client.read_holding_registers(addr, register_count, slave=slave_id)
                             elif register_type == "INPUT":
-                                rr = await client.read_input_registers(addr, 1, slave=slave_id)
+                                rr = await client.read_input_registers(addr, register_count, slave=slave_id)
                             elif register_type == "COIL":
                                 rr = await client.read_coils(addr, 1, slave=slave_id)
                             elif register_type == "DISCRETE":
                                 rr = await client.read_discrete_inputs(addr, 1, slave=slave_id)
                                 
                             if rr and not rr.isError():
-                                val = rr.registers[0] if hasattr(rr, 'registers') else rr.bits[0]
+                                # Handle coils and discrete inputs (single bit)
+                                if register_type in ["COIL", "DISCRETE"]:
+                                    val = rr.bits[0]
+                                # Handle single register types
+                                elif data_type in ['INT16', 'UINT16', 'BOOLEAN']:
+                                    val = rr.registers[0]
+                                    # Convert based on data type
+                                    if data_type == 'INT16':
+                                        # Convert unsigned to signed
+                                        val = val if val < 32768 else val - 65536
+                                    elif data_type == 'BOOLEAN':
+                                        val = bool(val)
+                                # Handle multi-register types with byte order conversion
+                                elif data_type in ['FLOAT32', 'INT32', 'UINT32', 'FLOAT64', 'INT64', 'UINT64']:
+                                    val = convert_byte_order(rr.registers, byte_order, data_type)
+                                else:
+                                    val = rr.registers[0]
+                                
                                 await self.store.update_tag(tag.tag_id, val)
                             else:
                                 error_msg = f"Modbus Error: {rr}" if rr else "Modbus Error: No response"

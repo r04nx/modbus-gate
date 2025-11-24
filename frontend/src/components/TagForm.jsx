@@ -279,10 +279,41 @@ const TagForm = ({ onClose, onSubmit, editTag = null, initialType = null }) => {
                             >
                                 <option value="INT16">INT16</option>
                                 <option value="UINT16">UINT16</option>
+                                <option value="INT32">INT32</option>
+                                <option value="UINT32">UINT32</option>
                                 <option value="FLOAT32">FLOAT32</option>
+                                <option value="INT64">INT64</option>
+                                <option value="UINT64">UINT64</option>
+                                <option value="FLOAT64">FLOAT64</option>
                                 <option value="BOOLEAN">BOOLEAN</option>
                             </select>
                         </div>
+
+                        {/* Byte Order - Only for multi-register types */}
+                        {['FLOAT32', 'INT32', 'UINT32', 'FLOAT64', 'INT64', 'UINT64'].includes(formData.data_type) && (
+                            <div>
+                                <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">
+                                    Byte Order
+                                    <span className="text-xs text-slate-400 ml-2">(Word/Byte Order)</span>
+                                </label>
+                                <select
+                                    value={formData.params?.byte_order || 'ABCD'}
+                                    onChange={(e) => setFormData(prev => ({
+                                        ...prev,
+                                        params: { ...prev.params, byte_order: e.target.value }
+                                    }))}
+                                    className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                                >
+                                    <option value="ABCD">ABCD (Big Endian)</option>
+                                    <option value="DCBA">DCBA (Little Endian)</option>
+                                    <option value="BADC">BADC (Mid-Big Endian)</option>
+                                    <option value="CDAB">CDAB (Mid-Little Endian)</option>
+                                </select>
+                                <p className="text-xs text-slate-400 mt-1">
+                                    {formData.data_type.includes('32') ? '2 registers (4 bytes)' : '4 registers (8 bytes)'}
+                                </p>
+                            </div>
+                        )}
                     </div>
                 );
             case 'SNMP':
