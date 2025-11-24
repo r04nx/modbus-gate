@@ -5,6 +5,8 @@ import TagForm from '../components/TagForm';
 import SearchBar from '../components/common/SearchBar';
 import { Plus, Tag as TagIcon, Activity, Hash, Filter, RefreshCw, Download, Upload, Edit2, Send } from 'lucide-react';
 import clsx from 'clsx';
+import Sparkline from '../components/Sparkline';
+import PopupChart from '../components/PopupChart';
 
 const Tags = () => {
     const [searchParams, setSearchParams] = useSearchParams();
@@ -15,6 +17,8 @@ const Tags = () => {
     const [filter, setFilter] = useState('IO');
     const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(true);
+    const [hoveredTag, setHoveredTag] = useState(null);
+    const [hoveredTagPos, setHoveredTagPos] = useState({ x: 0, y: 0 });
 
     // Write Modal State
     const [showWriteModal, setShowWriteModal] = useState(false);
@@ -188,8 +192,30 @@ const Tags = () => {
         );
     }
 
+    const isNumeric = (type) => {
+        if (!type) return false;
+        const numericTypes = ['INT16', 'UINT16', 'INT32', 'UINT32', 'FLOAT32', 'FLOAT64', 'DOUBLE', 'BOOL', 'BOOLEAN'];
+        return numericTypes.includes(type.toUpperCase()) ||
+            (type === 'SYSTEM' && ['CPU_USAGE', 'RAM_USAGE', 'DISK_USAGE', 'UPTIME', 'BYTES_SENT', 'BYTES_RECV'].some(k => type.includes(k)));
+    };
+
+    // Helper to extract history values for Sparkline (just values)
+    const getHistoryValues = (history) => {
+        if (!history) return [];
+        return history.map(h => h.value);
+    };
+
+    const handleMouseEnter = (e, tagId) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        setHoveredTagPos({
+            x: rect.left + rect.width / 2,
+            y: rect.top
+        });
+        setHoveredTag(tagId);
+    };
+
     return (
-        <div className="space-y-8">
+        <div className="space-y-8 relative">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h2 className="text-3xl font-bold text-white mb-2">Tag Management</h2>
@@ -345,7 +371,25 @@ const Tags = () => {
                                                     </div>
                                                 </div>
                                             ) : (
-                                                <span className="text-sm text-white font-mono">{val?.value ?? '-'}</span>
+                                                <div
+                                                    className="flex items-center gap-4 relative"
+                                                    onMouseEnter={(e) => handleMouseEnter(e, tag.tag_id)}
+                                                    onMouseLeave={() => setHoveredTag(null)}
+                                                >
+                                                    <span className="text-sm text-white font-mono min-w-[60px]">{val?.value ?? '-'}</span>
+
+                                                    {/* Sparkline for Numeric Tags */}
+                                                    {(isNumeric(tag.data_type) || !isNaN(parseFloat(val?.value))) && val?.history && val.history.length > 1 && (
+                                                        <div className="w-24 h-8 opacity-70 hover:opacity-100 transition-opacity cursor-crosshair">
+                                                            <Sparkline
+                                                                data={getHistoryValues(val.history)}
+                                                                width={96}
+                                                                height={32}
+                                                                color="#3b82f6"
+                                                            />
+                                                        </div>
+                                                    )}
+                                                </div>
                                             )}
                                         </td>
                                         <td className="p-4">
@@ -423,6 +467,27 @@ const Tags = () => {
                     </table>
                 </div>
             </div>
+
+            {/* Global Popup Chart (Fixed Position to avoid clipping) */}
+            {hoveredTag && values[hoveredTag]?.history && (
+                <div
+                    className="fixed z-[100] pointer-events-none animate-in fade-in zoom-in-95 duration-200"
+                    style={{
+                        left: hoveredTagPos.x,
+                        top: hoveredTagPos.y - 10,
+                        transform: 'translate(-50%, -100%)'
+                    }}
+                >
+                    <PopupChart
+                        data={values[hoveredTag].history}
+                        title={tags.find(t => t.tag_id === hoveredTag)?.name || hoveredTag}
+                        width={300}
+                        height={150}
+                    />
+                    {/* Arrow */}
+                    <div className="absolute left-1/2 -translate-x-1/2 top-full -mt-1 border-8 border-transparent border-t-surfaceHighlight/50 filter drop-shadow-lg"></div>
+                </div>
+            )}
 
             {showForm && <TagForm
                 onClose={() => {

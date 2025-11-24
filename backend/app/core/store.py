@@ -9,12 +9,13 @@ class TagValue(BaseModel):
     timestamp: float
     quality: str = "GOOD" # GOOD, BAD, UNCERTAIN
     error_message: Optional[str] = None
+    history: List[Dict[str, Any]] = [] # List of {timestamp, value}
 
 class GlobalDataStore:
     _instance = None
     _lock = asyncio.Lock()
     _data: Dict[str, TagValue] = {} # tag_id -> TagValue
-    _history: Dict[str, List[float]] = {} # tag_id -> list of recent values
+    _history: Dict[str, List[Dict[str, Any]]] = {} # tag_id -> list of {timestamp, value}
 
     def __new__(cls):
         if cls._instance is None:
@@ -24,28 +25,37 @@ class GlobalDataStore:
     @classmethod
     async def update_tag(cls, tag_id: str, value: Any, quality: str = "GOOD", error_message: Optional[str] = None):
         async with cls._lock:
+            current_time = time.time()
+            
+            # Update history for sparklines (only for numeric values with GOOD quality)
+            if quality == "GOOD" and value is not None:
+                try:
+                    numeric_value = float(value)
+                    if tag_id not in cls._history:
+                        cls._history[tag_id] = []
+                    
+                    cls._history[tag_id].append({
+                        "timestamp": current_time,
+                        "value": numeric_value
+                    })
+                    
+                    # Keep last 60 values (approx 1 min at 1 sec interval)
+                    if len(cls._history[tag_id]) > 60:
+                        cls._history[tag_id] = cls._history[tag_id][-60:]
+                except (ValueError, TypeError):
+                    pass  # Not a numeric value, skip history
+
             if tag_id in cls._data:
                 cls._data[tag_id].value = value
                 cls._data[tag_id].quality = quality
                 cls._data[tag_id].error_message = error_message
-                cls._data[tag_id].timestamp = time.time()
-                
-                # Update history for sparklines (only for numeric values with GOOD quality)
-                if quality == "GOOD" and value is not None:
-                    try:
-                        numeric_value = float(value)
-                        if tag_id not in cls._history:
-                            cls._history[tag_id] = []
-                        cls._history[tag_id].append(numeric_value)
-                        # Keep only last 20 values for sparkline
-                        if len(cls._history[tag_id]) > 20:
-                            cls._history[tag_id] = cls._history[tag_id][-20:]
-                    except (ValueError, TypeError):
-                        pass  # Not a numeric value, skip history
+                cls._data[tag_id].timestamp = current_time
+                # We don't store history in _data directly to save memory, 
+                # it's injected when retrieving
             else:
                 cls._data[tag_id] = TagValue(
                     value=value,
-                    timestamp=time.time(),
+                    timestamp=current_time,
                     quality=quality,
                     error_message=error_message
                 )
@@ -58,7 +68,15 @@ class GlobalDataStore:
     @classmethod
     async def get_all_tags(cls) -> Dict[str, TagValue]:
         async with cls._lock:
-            return cls._data.copy()
+            # Create a copy and inject history
+            result = {}
+            for tag_id, tag_val in cls._data.items():
+                # Create a new instance to avoid modifying the stored one
+                new_val = tag_val.model_copy()
+                if tag_id in cls._history:
+                    new_val.history = cls._history[tag_id]
+                result[tag_id] = new_val
+            return result
 
     @classmethod
     async def delete_tag(cls, tag_id: str):

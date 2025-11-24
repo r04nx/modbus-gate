@@ -224,6 +224,12 @@ export default function Servers() {
         const errors = [];
         const mappings = config.config.mappings || [];
 
+        // Helper to get source tag type
+        const getSourceType = (tagId) => {
+            const tag = availableTags.find(t => t.tag_id === tagId);
+            return tag ? tag.data_type : null;
+        };
+
         if (activeTab === 'MODBUS_SERVER') {
             const used = {};
             mappings.forEach((m) => {
@@ -235,6 +241,22 @@ export default function Servers() {
                     if (used[key]) errors.push(`Overlap: ${m.tag_id} at ${m.register_type} ${i}`);
                     else used[key] = m.tag_id;
                 }
+
+                // Type Validation
+                const sourceType = getSourceType(m.tag_id);
+                if (sourceType) {
+                    // String Conflict
+                    if (sourceType === 'STRING' && m.data_type !== 'STRING') {
+                        errors.push(`Type Conflict: Tag '${m.tag_id}' is STRING but mapped as ${m.data_type}. IP/String tags cannot be mapped to numeric registers.`);
+                    }
+
+                    // Float to Int Warning (Optional, maybe just strict error for String)
+                    if ((sourceType === 'FLOAT32' || sourceType === 'FLOAT64') && !m.data_type.includes('FLOAT')) {
+                        // errors.push(`Precision Loss: Tag '${m.tag_id}' is ${sourceType} but mapped as ${m.data_type}.`);
+                    }
+
+                    // Int to Float is usually fine
+                }
             });
         } else if (activeTab === 'IEC104_SERVER') {
             const used = {};
@@ -245,7 +267,7 @@ export default function Servers() {
         }
 
         return errors;
-    }, [config.config.mappings, activeTab]);
+    }, [config.config.mappings, activeTab, availableTags]);
 
     // --- CSV Import/Export Logic ---
 
@@ -681,11 +703,23 @@ export default function Servers() {
                                         <select
                                             value={mapping.type_id}
                                             onChange={(e) => updateMapping(idx, 'type_id', e.target.value)}
-                                            className="bg-transparent border border-surfaceHighlight/30 rounded px-2 py-1 text-text-secondary focus:text-white focus:border-primary outline-none"
+                                            className="bg-transparent border border-surfaceHighlight/30 rounded px-2 py-1 text-text-secondary focus:text-white focus:border-primary outline-none text-sm"
+                                            title="Select IEC 104 Type ID"
                                         >
-                                            <option value="M_ME_NC_1">Measured Value (Float)</option>
-                                            <option value="M_SP_NA_1">Single Point</option>
-                                            <option value="M_DP_NA_1">Double Point</option>
+                                            <optgroup label="Analog Values">
+                                                <option value="M_ME_NC_1">M_ME_NC_1 - Float (IEEE 754)</option>
+                                                <option value="M_ME_NA_1">M_ME_NA_1 - Normalized (-1.0 to +1.0)</option>
+                                                <option value="M_ME_NB_1">M_ME_NB_1 - Scaled (-32768 to +32767)</option>
+                                                <option value="M_ME_ND_1">M_ME_ND_1 - Normalized (No Quality)</option>
+                                            </optgroup>
+                                            <optgroup label="Digital Values">
+                                                <option value="M_SP_NA_1">M_SP_NA_1 - Single Point (Boolean)</option>
+                                                <option value="M_DP_NA_1">M_DP_NA_1 - Double Point (0-3)</option>
+                                                <option value="M_ST_NA_1">M_ST_NA_1 - Step Position (-64 to +63)</option>
+                                            </optgroup>
+                                            <optgroup label="Other">
+                                                <option value="M_BO_NA_1">M_BO_NA_1 - Bitstring (32 bits)</option>
+                                            </optgroup>
                                         </select>
                                     </td>
                                     <td className="px-6 py-3">
@@ -756,21 +790,83 @@ export default function Servers() {
                     </div>
                     <div className="p-6 space-y-4">
                         {(config.config.brokers || []).map((broker, idx) => (
-                            <div key={broker.id} className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-surfaceHighlight/5 rounded-xl border border-surfaceHighlight/20">
-                                <div>
-                                    <label className="text-xs text-text-muted block mb-1">Host</label>
-                                    <input value={broker.host} onChange={(e) => updateBroker(idx, 'host', e.target.value)} className="w-full bg-bg-card border border-surfaceHighlight/30 rounded px-3 py-2 text-sm text-white" />
+                            <div key={broker.id} className="p-4 bg-surfaceHighlight/5 rounded-xl border border-surfaceHighlight/20 space-y-4">
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                    <div>
+                                        <label className="text-xs text-text-muted block mb-1">Host</label>
+                                        <input value={broker.host} onChange={(e) => updateBroker(idx, 'host', e.target.value)} className="w-full bg-bg-card border border-surfaceHighlight/30 rounded px-3 py-2 text-sm text-white" />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-text-muted block mb-1">Port</label>
+                                        <input type="number" value={broker.port} onChange={(e) => updateBroker(idx, 'port', parseInt(e.target.value))} className="w-full bg-bg-card border border-surfaceHighlight/30 rounded px-3 py-2 text-sm text-white" />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-text-muted block mb-1">Client ID</label>
+                                        <input value={broker.client_id} onChange={(e) => updateBroker(idx, 'client_id', e.target.value)} className="w-full bg-bg-card border border-surfaceHighlight/30 rounded px-3 py-2 text-sm text-white" />
+                                    </div>
+                                    <div className="flex items-end justify-end">
+                                        <button onClick={() => removeBroker(idx)} className="p-2 text-text-muted hover:text-warning transition-colors"><Trash2 size={18} /></button>
+                                    </div>
                                 </div>
-                                <div>
-                                    <label className="text-xs text-text-muted block mb-1">Port</label>
-                                    <input type="number" value={broker.port} onChange={(e) => updateBroker(idx, 'port', parseInt(e.target.value))} className="w-full bg-bg-card border border-surfaceHighlight/30 rounded px-3 py-2 text-sm text-white" />
+
+                                {/* Username/Password */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-xs text-text-muted block mb-1">Username (optional)</label>
+                                        <input value={broker.username || ''} onChange={(e) => updateBroker(idx, 'username', e.target.value)} className="w-full bg-bg-card border border-surfaceHighlight/30 rounded px-3 py-2 text-sm text-white" placeholder="Leave empty if not required" />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-text-muted block mb-1">Password (optional)</label>
+                                        <input type="password" value={broker.password || ''} onChange={(e) => updateBroker(idx, 'password', e.target.value)} className="w-full bg-bg-card border border-surfaceHighlight/30 rounded px-3 py-2 text-sm text-white" placeholder="Leave empty if not required" />
+                                    </div>
                                 </div>
-                                <div>
-                                    <label className="text-xs text-text-muted block mb-1">Client ID</label>
-                                    <input value={broker.client_id} onChange={(e) => updateBroker(idx, 'client_id', e.target.value)} className="w-full bg-bg-card border border-surfaceHighlight/30 rounded px-3 py-2 text-sm text-white" />
-                                </div>
-                                <div className="flex items-end justify-end">
-                                    <button onClick={() => removeBroker(idx)} className="p-2 text-text-muted hover:text-warning transition-colors"><Trash2 size={18} /></button>
+
+                                {/* TLS/SSL Configuration */}
+                                <div className="border-t border-surfaceHighlight/20 pt-4">
+                                    <div className="flex items-center gap-3 mb-3">
+                                        <input
+                                            type="checkbox"
+                                            id={`tls-${broker.id}`}
+                                            checked={broker.use_tls || false}
+                                            onChange={(e) => updateBroker(idx, 'use_tls', e.target.checked)}
+                                            className="w-4 h-4 rounded border-surfaceHighlight/50 bg-surfaceHighlight/20 text-primary focus:ring-primary focus:ring-offset-0"
+                                        />
+                                        <label htmlFor={`tls-${broker.id}`} className="text-sm font-medium text-white cursor-pointer">
+                                            Use TLS/SSL (Port 8883)
+                                        </label>
+                                    </div>
+
+                                    {broker.use_tls && (
+                                        <div className="space-y-3 pl-7">
+                                            <div>
+                                                <label className="text-xs text-text-muted block mb-1">Certificate</label>
+                                                <select
+                                                    value={broker.certificate_id || ''}
+                                                    onChange={(e) => updateBroker(idx, 'certificate_id', e.target.value ? parseInt(e.target.value) : null)}
+                                                    className="w-full bg-bg-card border border-surfaceHighlight/30 rounded px-3 py-2 text-sm text-white"
+                                                >
+                                                    <option value="">No certificate (server validation only)</option>
+                                                    {/* Certificate options will be loaded dynamically */}
+                                                </select>
+                                                <p className="text-xs text-text-muted mt-1">
+                                                    Upload certificates in Settings → Certificates
+                                                </p>
+                                            </div>
+
+                                            <div className="flex items-center gap-3">
+                                                <input
+                                                    type="checkbox"
+                                                    id={`tls-insecure-${broker.id}`}
+                                                    checked={broker.tls_insecure || false}
+                                                    onChange={(e) => updateBroker(idx, 'tls_insecure', e.target.checked)}
+                                                    className="w-4 h-4 rounded border-surfaceHighlight/50 bg-surfaceHighlight/20 text-primary focus:ring-primary focus:ring-offset-0"
+                                                />
+                                                <label htmlFor={`tls-insecure-${broker.id}`} className="text-xs text-text-muted cursor-pointer">
+                                                    Skip certificate verification (insecure, for self-signed certs)
+                                                </label>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         ))}

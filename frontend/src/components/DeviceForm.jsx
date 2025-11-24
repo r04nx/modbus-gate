@@ -54,7 +54,7 @@ const DeviceForm = ({ onClose, onSubmit, editDevice = null }) => {
         } else if (newType === 'SNMP') {
             setFormData(prev => ({
                 ...prev,
-                connection_params: { host: '127.0.0.1', port: 161, community: 'public' }
+                connection_params: { host: '127.0.0.1', port: 161, version: 'v2c', community: 'public' }
             }));
         } else if (newType === 'IEC104') {
             setFormData(prev => ({
@@ -210,6 +210,7 @@ const DeviceForm = ({ onClose, onSubmit, editDevice = null }) => {
                                         placeholder="192.168.1.100"
                                     />
                                 </div>
+
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-sm font-medium text-text-secondary mb-2">Port</label>
@@ -222,16 +223,123 @@ const DeviceForm = ({ onClose, onSubmit, editDevice = null }) => {
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-text-secondary mb-2">Community</label>
+                                        <label className="block text-sm font-medium text-text-secondary mb-2">SNMP Version</label>
+                                        <select
+                                            name="version"
+                                            value={formData.connection_params.version || 'v2c'}
+                                            onChange={handleParamChange}
+                                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary transition-colors"
+                                        >
+                                            <option value="v1">SNMPv1</option>
+                                            <option value="v2c">SNMPv2c</option>
+                                            <option value="v3">SNMPv3</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* Community-based (v1/v2c) */}
+                                {(formData.connection_params.version === 'v1' || formData.connection_params.version === 'v2c' || !formData.connection_params.version) && (
+                                    <div>
+                                        <label className="block text-sm font-medium text-text-secondary mb-2">Community String</label>
                                         <input
                                             name="community"
-                                            value={formData.connection_params.community}
+                                            value={formData.connection_params.community || 'public'}
                                             onChange={handleParamChange}
                                             className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
                                             placeholder="public"
                                         />
                                     </div>
-                                </div>
+                                )}
+
+                                {/* SNMPv3 Authentication */}
+                                {formData.connection_params.version === 'v3' && (
+                                    <>
+                                        <div>
+                                            <label className="block text-sm font-medium text-text-secondary mb-2">Username</label>
+                                            <input
+                                                name="username"
+                                                value={formData.connection_params.username || ''}
+                                                onChange={handleParamChange}
+                                                className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
+                                                placeholder="snmpuser"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-text-secondary mb-2">Security Level</label>
+                                            <select
+                                                name="security_level"
+                                                value={formData.connection_params.security_level || 'noAuthNoPriv'}
+                                                onChange={handleParamChange}
+                                                className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary transition-colors"
+                                            >
+                                                <option value="noAuthNoPriv">No Auth, No Privacy</option>
+                                                <option value="authNoPriv">Auth, No Privacy</option>
+                                                <option value="authPriv">Auth + Privacy</option>
+                                            </select>
+                                        </div>
+
+                                        {/* Authentication fields */}
+                                        {(formData.connection_params.security_level === 'authNoPriv' || formData.connection_params.security_level === 'authPriv') && (
+                                            <>
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-text-secondary mb-2">Auth Protocol</label>
+                                                        <select
+                                                            name="auth_protocol"
+                                                            value={formData.connection_params.auth_protocol || 'SHA'}
+                                                            onChange={handleParamChange}
+                                                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary transition-colors"
+                                                        >
+                                                            <option value="MD5">MD5</option>
+                                                            <option value="SHA">SHA</option>
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-text-secondary mb-2">Auth Password</label>
+                                                        <input
+                                                            name="auth_password"
+                                                            type="password"
+                                                            value={formData.connection_params.auth_password || ''}
+                                                            onChange={handleParamChange}
+                                                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
+                                                            placeholder="••••••••"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </>
+                                        )}
+
+                                        {/* Privacy fields */}
+                                        {formData.connection_params.security_level === 'authPriv' && (
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="block text-sm font-medium text-text-secondary mb-2">Privacy Protocol</label>
+                                                    <select
+                                                        name="priv_protocol"
+                                                        value={formData.connection_params.priv_protocol || 'AES'}
+                                                        onChange={handleParamChange}
+                                                        className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary transition-colors"
+                                                    >
+                                                        <option value="DES">DES</option>
+                                                        <option value="AES">AES</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-text-secondary mb-2">Privacy Password</label>
+                                                    <input
+                                                        name="priv_password"
+                                                        type="password"
+                                                        value={formData.connection_params.priv_password || ''}
+                                                        onChange={handleParamChange}
+                                                        className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
+                                                        placeholder="••••••••"
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
                             </>
                         )}
 

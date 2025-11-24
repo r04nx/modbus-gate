@@ -6,7 +6,12 @@ from app.models import models
 from app.core.store import GlobalDataStore
 from pymodbus.client import AsyncModbusTcpClient, AsyncModbusSerialClient
 from asyncua import Client as OpcUaClient
-from pysnmp.hlapi.asyncio import SnmpEngine, CommunityData, UdpTransportTarget, ContextData, ObjectType, ObjectIdentity, getCmd
+from pysnmp.hlapi.asyncio import (
+    SnmpEngine, CommunityData, UsmUserData, UdpTransportTarget, ContextData, 
+    ObjectType, ObjectIdentity, getCmd,
+    usmHMACMD5AuthProtocol, usmHMACSHAAuthProtocol,
+    usmDESPrivProtocol, usmAesCfb128Protocol
+)
 import c104
 
 # Suppress verbose asyncua logging
@@ -149,18 +154,73 @@ class PollingEngine:
                     await self.store.update_tag(tag.tag_id, None, quality="BAD", error_message=error_msg)
 
     async def _poll_snmp(self, device: models.Device):
+        """Poll SNMP device with support for v1, v2c, and v3"""
         params = device.connection_params
         host = params.get("host")
         port = params.get("port", 161)
-        community = params.get("community", "public")
+        version = params.get("version", "v2c")  # v1, v2c, or v3
+        
+        # Create authentication data based on SNMP version
+        auth_data = None
+        
+        if version in ["v1", "v2c"]:
+            # Community-based authentication
+            community = params.get("community", "public")
+            mp_model = 0 if version == "v1" else 1
+            auth_data = CommunityData(community, mpModel=mp_model)
+            
+        elif version == "v3":
+            # User-based security model
+            username = params.get("username")
+            if not username:
+                logging.error(f"SNMPv3 requires username for device {device.name}")
+                return
+            
+            security_level = params.get("security_level", "noAuthNoPriv")
+            auth_protocol = None
+            auth_key = None
+            priv_protocol = None
+            priv_key = None
+            
+            # Authentication
+            if security_level in ["authNoPriv", "authPriv"]:
+                auth_proto = params.get("auth_protocol", "SHA")
+                auth_protocol = usmHMACSHAAuthProtocol if auth_proto == "SHA" else usmHMACMD5AuthProtocol
+                auth_key = params.get("auth_password")
+                
+                if not auth_key:
+                    logging.error(f"SNMPv3 {security_level} requires auth_password for device {device.name}")
+                    return
+            
+            # Privacy (encryption)
+            if security_level == "authPriv":
+                priv_proto = params.get("priv_protocol", "AES")
+                priv_protocol = usmAesCfb128Protocol if priv_proto == "AES" else usmDESPrivProtocol
+                priv_key = params.get("priv_password")
+                
+                if not priv_key:
+                    logging.error(f"SNMPv3 authPriv requires priv_password for device {device.name}")
+                    return
+            
+            auth_data = UsmUserData(
+                username,
+                authKey=auth_key,
+                privKey=priv_key,
+                authProtocol=auth_protocol,
+                privProtocol=priv_protocol
+            )
+        else:
+            logging.error(f"Unsupported SNMP version '{version}' for device {device.name}")
+            return
 
+        # Poll each tag
         for tag in device.tags:
-            if tag.enabled and tag.address: # address is OID e.g. "1.3.6.1.2.1.1.1.0"
+            if tag.enabled and tag.address:  # address is OID e.g. "1.3.6.1.2.1.1.1.0"
                 try:
                     errorIndication, errorStatus, errorIndex, varBinds = await getCmd(
                         SnmpEngine(),
-                        CommunityData(community),
-                        UdpTransportTarget((host, port)),
+                        auth_data,
+                        UdpTransportTarget((host, port), timeout=params.get("timeout", 5), retries=params.get("retries", 3)),
                         ContextData(),
                         ObjectType(ObjectIdentity(tag.address))
                     )

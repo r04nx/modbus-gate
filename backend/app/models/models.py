@@ -1,6 +1,7 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, JSON, Float
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, JSON, Float, LargeBinary, DateTime
 from sqlalchemy.orm import relationship
 from app.core.database import Base
+from datetime import datetime
 
 # Import new models
 from .user import User, Session, UserRole
@@ -55,4 +56,21 @@ class ServerConfig(Base):
     type = Column(String, unique=True, index=True) # MODBUS_SERVER, OPC_UA_SERVER, IEC104_SERVER, MQTT_PUBLISHER
     enabled = Column(Boolean, default=False)
     config = Column(JSON, default={}) # Port, Host, Topic, etc.
+
+class Certificate(Base):
+    """
+    Store TLS/SSL certificates for MQTT and other secure connections.
+    Certificates are stored as binary data in the database for security.
+    """
+    __tablename__ = "certificates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True)  # e.g., "mqtt_broker_1"
+    description = Column(String, nullable=True)
+    ca_cert = Column(LargeBinary, nullable=True)  # CA certificate (PEM format)
+    client_cert = Column(LargeBinary, nullable=True)  # Client certificate (PEM format)
+    client_key = Column(LargeBinary, nullable=True)  # Client private key (PEM format, encrypted)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 

@@ -49,6 +49,24 @@ export const writeTag = (id, value) => api.post(`/tags/${id}/write`, { value });
 
 // Server Config
 export const getServerConfig = (type) => api.get(`/servers/${type}`);
+export const updateServerConfig = (type, config) => api.put(`/servers/${type}`, config);
+
+// Certificate Management
+export const uploadCertificate = (formData) => api.post('/servers/certificates', formData, {
+    headers: { 'Content-Type': 'multipart/form-data', ...getAuthHeader() }
+});
+
+export const listCertificates = () => api.get('/servers/certificates');
+
+export const getCertificate = (id) => api.get(`/servers/certificates/${id}`);
+
+export const getCertificateInfo = (id) => api.get(`/servers/certificates/${id}/info`);
+
+export const updateCertificate = (id, formData) => api.put(`/servers/certificates/${id}`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data', ...getAuthHeader() }
+});
+
+export const deleteCertificate = (id) => api.delete(`/servers/certificates/${id}`);
 
 // Configuration Management
 export const exportConfiguration = (options = {}) => {
@@ -66,3 +84,4 @@ export const importConfiguration = (config) => api.post('/config/import', config
 });
 
 export default api;
+

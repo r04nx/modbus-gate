@@ -24,6 +24,17 @@ async def read_tags(skip: int = 0, limit: int = 100, db: Session = Depends(get_d
         idx = -1
         for tag_id in all_values:
             if tag_id.startswith("SYS_"):
+                # Smart Classification of Data Types
+                data_type = "N/A"
+                if any(x in tag_id for x in ["CPU_USAGE", "RAM_USAGE", "DISK_USAGE"]):
+                    data_type = "FLOAT32"
+                elif any(x in tag_id for x in ["RAM_TOTAL", "RAM_AVAILABLE", "BYTES_SENT", "BYTES_RECV"]):
+                    data_type = "UINT64"
+                elif "UPTIME" in tag_id:
+                    data_type = "UINT32"
+                elif any(x in tag_id for x in ["HOSTNAME", "OS", "IP", "INTERFACES"]):
+                    data_type = "STRING"
+                
                 system_tags.append({
                     "id": idx,
                     "tag_id": tag_id,
@@ -33,7 +44,7 @@ async def read_tags(skip: int = 0, limit: int = 100, db: Session = Depends(get_d
                     "enabled": True,
                     "device_id": None,
                     "address": None,
-                    "data_type": "N/A",
+                    "data_type": data_type,
                     "params": None,
                     "initial_value": None,
                     "calculation_formula": None,

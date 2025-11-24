@@ -77,6 +77,7 @@ class TagValueResponse(BaseModel):
     timestamp: datetime
     quality: str
     error_message: Optional[str] = None
+    history: Optional[List[Dict[str, Any]]] = None # List of {timestamp, value}
 
 # Tag Write Schema
 class TagWrite(BaseModel):
