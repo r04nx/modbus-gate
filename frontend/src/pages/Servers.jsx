@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Save, Server, Activity, Settings, RefreshCw, CheckCircle, XCircle, Plus, Trash2, Search, AlertTriangle, Edit2, ChevronRight, ChevronDown, Database, Network, Wifi, Gauge, Tag, Calculator, BarChart3, User, Wand2, Copy } from 'lucide-react';
+import { Save, Server, Activity, Settings, RefreshCw, CheckCircle, XCircle, Plus, Trash2, Search, AlertTriangle, Edit2, ChevronRight, ChevronDown, Database, Network, Wifi, Gauge, Tag, Calculator, BarChart3, User, Wand2, Copy, Upload } from 'lucide-react';
 import axios from 'axios';
 import clsx from 'clsx';
 import TagMappingSelector from '../components/TagMappingSelector';
 import JsonEditor from '../components/JsonEditor';
-import { getTags } from '../services/api';
+import CertificateUpload from '../components/CertificateUpload';
+import { getTags, listCertificates } from '../services/api';
 
 // Use relative URL or window.location to avoid hardcoded localhost
 const API_URL = `http://${window.location.hostname}:8000/api/v1`;
@@ -41,8 +42,22 @@ export default function Servers() {
     const [availableTags, setAvailableTags] = useState([]);
     const [expandedItems, setExpandedItems] = useState({});
 
+    // Certificate State
+    const [certificates, setCertificates] = useState([]);
+    const [showCertUpload, setShowCertUpload] = useState(false);
+
     const toggleItem = (id) => {
         setExpandedItems(prev => ({ ...prev, [id]: !prev[id] }));
+    };
+
+    // Load certificates
+    const loadCertificates = async () => {
+        try {
+            const response = await listCertificates();
+            setCertificates(response.data || []);
+        } catch (error) {
+            console.error('Failed to load certificates:', error);
+        }
     };
 
     const tabs = [
@@ -60,6 +75,7 @@ export default function Servers() {
         });
         fetchConfig(activeTab);
         loadTags();
+        loadCertificates(); // Load certificates for MQTT TLS
     }, [activeTab]);
 
     const loadTags = async () => {
@@ -839,18 +855,34 @@ export default function Servers() {
                                     {broker.use_tls && (
                                         <div className="space-y-3 pl-7">
                                             <div>
-                                                <label className="text-xs text-text-muted block mb-1">Certificate</label>
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <label className="text-xs text-text-muted">Certificate</label>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowCertUpload(true)}
+                                                        className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors"
+                                                    >
+                                                        <Upload size={12} />
+                                                        Upload New
+                                                    </button>
+                                                </div>
                                                 <select
                                                     value={broker.certificate_id || ''}
                                                     onChange={(e) => updateBroker(idx, 'certificate_id', e.target.value ? parseInt(e.target.value) : null)}
                                                     className="w-full bg-bg-card border border-surfaceHighlight/30 rounded px-3 py-2 text-sm text-white"
                                                 >
                                                     <option value="">No certificate (server validation only)</option>
-                                                    {/* Certificate options will be loaded dynamically */}
+                                                    {certificates.map(cert => (
+                                                        <option key={cert.id} value={cert.id}>
+                                                            {cert.name} {cert.description ? `- ${cert.description}` : ''}
+                                                        </option>
+                                                    ))}
                                                 </select>
-                                                <p className="text-xs text-text-muted mt-1">
-                                                    Upload certificates in Settings → Certificates
-                                                </p>
+                                                {certificates.length === 0 && (
+                                                    <p className="text-xs text-text-muted mt-1">
+                                                        No certificates uploaded. Click "Upload New" to add one.
+                                                    </p>
+                                                )}
                                             </div>
 
                                             <div className="flex items-center gap-3">
@@ -1063,6 +1095,31 @@ export default function Servers() {
                 mappedTags={[]} // Allow duplicate mappings - same tag can be mapped multiple times
                 title={selectorContext === 'MQTT_PUB' ? "Select Tags for Publication" : "Select Tags to Map"}
             />
+
+            {/* Certificate Upload Modal */}
+            {showCertUpload && (
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-50 p-4">
+                    <div className="bg-surface/90 backdrop-blur-xl border border-surfaceHighlight/50 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                        <div className="sticky top-0 bg-surface/90 backdrop-blur-xl border-b border-surfaceHighlight/50 p-6 flex justify-between items-center z-10">
+                            <h3 className="text-2xl font-bold text-white">Upload TLS Certificate</h3>
+                            <button
+                                onClick={() => setShowCertUpload(false)}
+                                className="text-text-muted hover:text-white transition-colors p-2 hover:bg-surfaceHighlight/30 rounded-lg"
+                            >
+                                <XCircle size={20} />
+                            </button>
+                        </div>
+                        <div className="p-6">
+                            <CertificateUpload
+                                onUploadSuccess={() => {
+                                    setShowCertUpload(false);
+                                    loadCertificates(); // Reload certificates after upload
+                                }}
+                            />
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
