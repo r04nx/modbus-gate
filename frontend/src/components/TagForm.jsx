@@ -626,39 +626,41 @@ const TagForm = ({ onClose, onSubmit, editTag = null, initialType = null }) => {
                             {/* Dynamic Protocol Fields */}
                             {renderProtocolFields()}
 
-                            {/* Fallback Mechanism */}
-                            <div className="border-t border-slate-700 pt-4 mt-4">
-                                <h4 className="text-sm font-semibold text-slate-200 mb-3">Fallback Strategy</h4>
-                                <div className="space-y-3">
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-200 mb-1">On Connectivity Failure</label>
-                                        <select
-                                            name="fallback_type"
-                                            value={formData.fallback_type}
-                                            onChange={handleChange}
-                                            className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
-                                        >
-                                            <option value="none">None (Return Null)</option>
-                                            <option value="last_success">Use Last Success Value</option>
-                                            <option value="default">Use Default Value</option>
-                                        </select>
-                                    </div>
-
-                                    {formData.fallback_type === 'default' && (
+                            {/* Fallback Mechanism - Only for IO tags */}
+                            {type === 'IO' && (
+                                <div className="border-t border-slate-700 pt-4 mt-4">
+                                    <h4 className="text-sm font-semibold text-slate-200 mb-3">Fallback Strategy</h4>
+                                    <div className="space-y-3">
                                         <div>
-                                            <label className="block text-sm font-medium text-slate-200 mb-1">Default Value</label>
-                                            <input
-                                                name="fallback_value"
-                                                value={formData.fallback_value}
+                                            <label className="block text-sm font-medium text-slate-200 mb-1">On Connectivity Failure</label>
+                                            <select
+                                                name="fallback_type"
+                                                value={formData.fallback_type}
                                                 onChange={handleChange}
-                                                placeholder="Enter default value"
                                                 className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
-                                            />
-                                            <p className="text-xs text-slate-400 mt-1">This value will be used when the device is unreachable</p>
+                                            >
+                                                <option value="none">None (Return Null)</option>
+                                                <option value="last_success">Use Last Success Value</option>
+                                                <option value="default">Use Default Value</option>
+                                            </select>
                                         </div>
-                                    )}
+
+                                        {formData.fallback_type === 'default' && (
+                                            <div>
+                                                <label className="block text-sm font-medium text-slate-200 mb-1">Default Value</label>
+                                                <input
+                                                    name="fallback_value"
+                                                    value={formData.fallback_value}
+                                                    onChange={handleChange}
+                                                    placeholder="Enter default value"
+                                                    className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                                                />
+                                                <p className="text-xs text-slate-400 mt-1">This value will be used when the device is unreachable</p>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
+                            )}
                         </>
                     )}
 
