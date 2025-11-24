@@ -54,9 +54,13 @@ export default function Servers() {
     const loadCertificates = async () => {
         try {
             const response = await listCertificates();
-            setCertificates(response.data || []);
+            // Ensure we always set an array, even if response.data is undefined or not an array
+            const certData = response?.data;
+            setCertificates(Array.isArray(certData) ? certData : []);
         } catch (error) {
             console.error('Failed to load certificates:', error);
+            // Set empty array on error to prevent crashes
+            setCertificates([]);
         }
     };
 
