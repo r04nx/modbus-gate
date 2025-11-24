@@ -61,7 +61,7 @@ OPERATIONS = [
     {"name": "e", "symbol": "e", "description": "Euler's number (2.71828...)", "category": "Constants", "example": "e ** A"},
 ]
 
-@router.get("/operations")
+@router.get("/")
 def get_operations() -> List[Dict]:
     """Get all available mathematical operations"""
     return OPERATIONS
