@@ -93,6 +93,7 @@ def convert_byte_order(registers, byte_order='ABCD', data_type='FLOAT32'):
     return None
 
 
+class PollingEngine:
     def __init__(self):
         self.running = False
         self.store = GlobalDataStore()
