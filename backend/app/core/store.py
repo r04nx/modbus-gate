@@ -39,9 +39,9 @@ class GlobalDataStore:
                         "value": numeric_value
                     })
                     
-                    # Keep last 60 values (approx 1 min at 1 sec interval)
-                    if len(cls._history[tag_id]) > 60:
-                        cls._history[tag_id] = cls._history[tag_id][-60:]
+                    # Keep last 3600 values (approx 1 hour at 1 sec interval)
+                    if len(cls._history[tag_id]) > 3600:
+                        cls._history[tag_id] = cls._history[tag_id][-3600:]
                 except (ValueError, TypeError):
                     pass  # Not a numeric value, skip history
 
@@ -66,7 +66,7 @@ class GlobalDataStore:
             return cls._data.get(tag_id)
 
     @classmethod
-    async def get_all_tags(cls) -> Dict[str, TagValue]:
+    async def get_all_tags(cls, history_limit: int = 60) -> Dict[str, TagValue]:
         async with cls._lock:
             # Create a copy and inject history
             result = {}
@@ -74,7 +74,12 @@ class GlobalDataStore:
                 # Create a new instance to avoid modifying the stored one
                 new_val = tag_val.model_copy()
                 if tag_id in cls._history:
-                    new_val.history = cls._history[tag_id]
+                    # Apply history limit
+                    history = cls._history[tag_id]
+                    if history_limit > 0 and len(history) > history_limit:
+                        new_val.history = history[-history_limit:]
+                    else:
+                        new_val.history = history
                 result[tag_id] = new_val
             return result
 

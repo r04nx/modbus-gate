@@ -23,7 +23,7 @@ export const getTags = () => api.get('/tags/');
 export const createTag = (tag) => api.post('/tags/', tag);
 export const updateTag = (id, tag) => api.patch(`/tags/${id}`, tag);
 export const deleteTag = (id) => api.delete(`/tags/${id}`);
-export const getTagValues = () => api.get('/tags/values');
+export const getTagValues = (historyLimit = 60) => api.get('/tags/values', { params: { history_limit: historyLimit } });
 export const exportTags = (type) => api.get(`/tags/export?type=${type}`, { responseType: 'blob' });
 export const importTags = (type, file) => {
     const formData = new FormData();

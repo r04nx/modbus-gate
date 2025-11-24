@@ -80,9 +80,9 @@ async def create_tag(tag: schemas.TagCreate, db: Session = Depends(get_db)):
     return db_tag
 
 @router.get("/values", response_model=Dict[str, schemas.TagValueResponse])
-async def read_tag_values():
+async def read_tag_values(history_limit: int = 60):
     store = GlobalDataStore()
-    return await store.get_all_tags()
+    return await store.get_all_tags(history_limit=history_limit)
 
 @router.patch("/{tag_id}", response_model=schemas.Tag)
 def update_tag(tag_id: int, tag_update: schemas.TagUpdate, db: Session = Depends(get_db)):

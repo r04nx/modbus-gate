@@ -206,13 +206,13 @@ class PollingEngine:
                             
                             rr = None
                             if register_type == "HOLDING":
-                                rr = await client.read_holding_registers(addr, register_count, device_id=slave_id)
+                                rr = await client.read_holding_registers(addr, count=register_count, device_id=slave_id)
                             elif register_type == "INPUT":
-                                rr = await client.read_input_registers(addr, register_count, device_id=slave_id)
+                                rr = await client.read_input_registers(addr, count=register_count, device_id=slave_id)
                             elif register_type == "COIL":
-                                rr = await client.read_coils(addr, 1, device_id=slave_id)
+                                rr = await client.read_coils(addr, count=1, device_id=slave_id)
                             elif register_type == "DISCRETE":
-                                rr = await client.read_discrete_inputs(addr, 1, device_id=slave_id)
+                                rr = await client.read_discrete_inputs(addr, count=1, device_id=slave_id)
                                 
                             if rr and not rr.isError():
                                 # Handle coils and discrete inputs (single bit)

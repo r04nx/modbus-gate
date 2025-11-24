@@ -27,6 +27,28 @@ const Layout = ({ children }) => {
         checkTerminal();
     }, []);
 
+    const [systemStatus, setSystemStatus] = useState('checking');
+
+    useEffect(() => {
+        const checkSystem = async () => {
+            try {
+                const API_HOST = window.location.hostname;
+                const API_PORT = '8000';
+                const API_BASE = `http://${API_HOST}:${API_PORT}/api/v1`;
+                const getAuthHeader = () => ({ Authorization: `Basic ${btoa('admin:admin')}` });
+
+                await axios.get(`${API_BASE}/system/hostname`, { headers: getAuthHeader(), timeout: 2000 });
+                setSystemStatus('online');
+            } catch (e) {
+                setSystemStatus('offline');
+            }
+        };
+
+        checkSystem();
+        const interval = setInterval(checkSystem, 10000);
+        return () => clearInterval(interval);
+    }, []);
+
     const navItems = [
         { path: '/', label: 'Dashboard', icon: LayoutDashboard },
         { path: '/devices', label: 'Devices', icon: Server },
@@ -82,8 +104,19 @@ const Layout = ({ children }) => {
                 <div className="p-4 border-t border-surfaceHighlight/50">
                     <div className="bg-surfaceHighlight/20 rounded-xl p-4 border border-surfaceHighlight/30">
                         <div className="flex items-center gap-3 mb-2">
-                            <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
-                            <span className="text-xs font-medium text-success">System Online</span>
+                            <div className={clsx(
+                                "w-2 h-2 rounded-full animate-pulse",
+                                systemStatus === 'online' ? "bg-success" :
+                                    systemStatus === 'offline' ? "bg-error" : "bg-warning"
+                            )} />
+                            <span className={clsx(
+                                "text-xs font-medium",
+                                systemStatus === 'online' ? "text-success" :
+                                    systemStatus === 'offline' ? "text-error" : "text-warning"
+                            )}>
+                                {systemStatus === 'online' ? 'System Online' :
+                                    systemStatus === 'offline' ? 'System Offline' : 'Connecting...'}
+                            </span>
                         </div>
                         <p className="text-xs text-text-muted">v1.0.0 • Stable</p>
                     </div>

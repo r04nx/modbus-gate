@@ -19,6 +19,7 @@ const Tags = () => {
     const [loading, setLoading] = useState(true);
     const [hoveredTag, setHoveredTag] = useState(null);
     const [hoveredTagPos, setHoveredTagPos] = useState({ x: 0, y: 0 });
+    const [historyLimit, setHistoryLimit] = useState(60);
 
     // Write Modal State
     const [showWriteModal, setShowWriteModal] = useState(false);
@@ -40,7 +41,7 @@ const Tags = () => {
 
     const fetchValues = async () => {
         try {
-            const { data } = await getTagValues();
+            const { data } = await getTagValues(historyLimit);
             setValues(data);
         } catch (error) {
             console.error("Failed to fetch values", error);
@@ -52,7 +53,7 @@ const Tags = () => {
         fetchValues(); // Initial fetch
         const interval = setInterval(fetchValues, 1000); // Update every 1 second
         return () => clearInterval(interval);
-    }, []);
+    }, [historyLimit]);
 
     const handleCreate = async (tagData, isBulk = false) => {
         try {
@@ -336,7 +337,24 @@ const Tags = () => {
                                 {filter === 'CALCULATION' && <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Formula</th>}
                                 {filter === 'USER' && <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Initial Value</th>}
                                 {filter === 'SYSTEM' && <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Description</th>}
-                                <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Value</th>
+                                {filter === 'SYSTEM' && <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Description</th>}
+                                <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">
+                                    <div className="flex items-center gap-2">
+                                        Value
+                                        <select
+                                            value={historyLimit}
+                                            onChange={(e) => setHistoryLimit(Number(e.target.value))}
+                                            className="bg-surfaceHighlight/50 border border-surfaceHighlight rounded px-1 py-0.5 text-xs text-white focus:outline-none cursor-pointer hover:bg-surfaceHighlight"
+                                            onClick={(e) => e.stopPropagation()}
+                                            title="Sparkline Time Window"
+                                        >
+                                            <option value={60}>1m</option>
+                                            <option value={300}>5m</option>
+                                            <option value={900}>15m</option>
+                                            <option value={3600}>1h</option>
+                                        </select>
+                                    </div>
+                                </th>
                                 <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Quality</th>
                                 <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Last Update</th>
                                 <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Actions</th>
