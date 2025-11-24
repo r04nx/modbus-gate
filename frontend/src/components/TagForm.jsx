@@ -11,6 +11,8 @@ const TagForm = ({ onClose, onSubmit, editTag = null, initialType = null }) => {
     const [type, setType] = useState(editTag?.type || initialType || 'IO');
     const [devices, setDevices] = useState([]);
     const [tags, setTags] = useState([]);
+    const [bulkMode, setBulkMode] = useState(false);
+    const [bulkRange, setBulkRange] = useState({ start: '', end: '', prefix: '' });
     const [formData, setFormData] = useState({
         tag_id: editTag?.tag_id || '',
         name: editTag?.name || '',
@@ -76,6 +78,52 @@ const TagForm = ({ onClose, onSubmit, editTag = null, initialType = null }) => {
 
     const handleSubmit = (e) => {
         e.preventDefault();
+
+        // Bulk mode: create multiple tags
+        if (bulkMode && type === 'IO') {
+            const start = parseInt(bulkRange.start);
+            const end = parseInt(bulkRange.end);
+            const prefix = bulkRange.prefix || 'TAG';
+
+            if (isNaN(start) || isNaN(end) || start > end) {
+                alert('Please enter valid start and end addresses (start must be <= end)');
+                return;
+            }
+
+            if (end - start > 1000) {
+                alert('Maximum 1000 tags can be created at once');
+                return;
+            }
+
+            // Create tags for the range
+            const bulkTags = [];
+            for (let addr = start; addr <= end; addr++) {
+                const timestamp = Date.now().toString(36);
+                const random = Math.random().toString(36).substring(2, 4);
+
+                const tagData = {
+                    ...formData,
+                    type,
+                    tag_id: `${prefix}_${addr}_${timestamp}_${random}`.toUpperCase(),
+                    name: `${prefix} ${addr}`,
+                    address: addr.toString(),
+                    description: formData.description || `Auto-generated tag for address ${addr}`
+                };
+
+                // Clean up for IO tags
+                if (tagData.device_id === '' || tagData.device_id === null) {
+                    delete tagData.device_id;
+                }
+
+                bulkTags.push(tagData);
+            }
+
+            // Submit all tags
+            onSubmit(bulkTags, true); // Pass true to indicate bulk mode
+            return;
+        }
+
+        // Single tag mode (existing logic)
         const tagData = { ...formData, type };
 
         // Trim and clean tag_id
@@ -143,17 +191,84 @@ const TagForm = ({ onClose, onSubmit, editTag = null, initialType = null }) => {
                                 <option value="DISCRETE">Discrete Input (1x)</option>
                             </select>
                         </div>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">Address (0-65535)</label>
-                            <input
-                                name="address"
-                                value={formData.address}
-                                onChange={handleChange}
-                                placeholder="e.g. 100"
-                                className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
-                                required
-                            />
-                        </div>
+
+                        {/* Bulk Mode Toggle - Only for IO tags */}
+                        {!isEditMode && (
+                            <div className="col-span-3 bg-surfaceHighlight/10 border border-surfaceHighlight/30 rounded-lg p-3">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={bulkMode}
+                                        onChange={(e) => setBulkMode(e.target.checked)}
+                                        className="w-4 h-4 rounded border-slate-700 bg-primary text-accent focus:ring-accent focus:ring-offset-0"
+                                    />
+                                    <span className="text-sm font-medium text-white">
+                                        Bulk Mode - Create multiple tags from address range
+                                    </span>
+                                </label>
+                            </div>
+                        )}
+
+                        {/* Conditional: Bulk Mode Fields or Single Address */}
+                        {bulkMode && !isEditMode ? (
+                            <>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">Tag Name Prefix</label>
+                                    <input
+                                        value={bulkRange.prefix}
+                                        onChange={(e) => setBulkRange({ ...bulkRange, prefix: e.target.value })}
+                                        placeholder="e.g. SENSOR"
+                                        className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                                        required
+                                    />
+                                    <p className="text-xs text-slate-400 mt-1">Tags will be named: PREFIX_ADDRESS</p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">Start Address</label>
+                                    <input
+                                        type="number"
+                                        value={bulkRange.start}
+                                        onChange={(e) => setBulkRange({ ...bulkRange, start: e.target.value })}
+                                        placeholder="e.g. 100"
+                                        min="0"
+                                        max="65535"
+                                        className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">End Address</label>
+                                    <input
+                                        type="number"
+                                        value={bulkRange.end}
+                                        onChange={(e) => setBulkRange({ ...bulkRange, end: e.target.value })}
+                                        placeholder="e.g. 150"
+                                        min="0"
+                                        max="65535"
+                                        className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                                        required
+                                    />
+                                    <p className="text-xs text-slate-400 mt-1">
+                                        {bulkRange.start && bulkRange.end && parseInt(bulkRange.end) >= parseInt(bulkRange.start)
+                                            ? `Will create ${parseInt(bulkRange.end) - parseInt(bulkRange.start) + 1} tags`
+                                            : 'Enter valid range'}
+                                    </p>
+                                </div>
+                            </>
+                        ) : (
+                            <div>
+                                <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">Address (0-65535)</label>
+                                <input
+                                    name="address"
+                                    value={formData.address}
+                                    onChange={handleChange}
+                                    placeholder="e.g. 100"
+                                    className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                                    required
+                                />
+                            </div>
+                        )}
+
                         <div>
                             <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">Data Type</label>
                             <select

@@ -54,13 +54,36 @@ const Tags = () => {
         return () => clearInterval(interval);
     }, []);
 
-    const handleCreate = async (tagData) => {
+    const handleCreate = async (tagData, isBulk = false) => {
         try {
-            await createTag(tagData);
+            if (isBulk && Array.isArray(tagData)) {
+                // Bulk creation: create all tags
+                setLoading(true);
+                let successCount = 0;
+                let failCount = 0;
+
+                for (const tag of tagData) {
+                    try {
+                        await createTag(tag);
+                        successCount++;
+                    } catch (error) {
+                        console.error(`Failed to create tag ${tag.name}:`, error);
+                        failCount++;
+                    }
+                }
+
+                alert(`Bulk creation complete!\nSuccess: ${successCount}\nFailed: ${failCount}`);
+                setLoading(false);
+            } else {
+                // Single tag creation
+                await createTag(tagData);
+            }
+
             setShowForm(false);
             fetchTags();
         } catch (error) {
             console.error("Failed to create tag", error);
+            alert("Failed to create tag: " + (error.response?.data?.detail || error.message));
         }
     };
 
