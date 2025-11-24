@@ -17,6 +17,8 @@ import c104
 
 # Suppress verbose asyncua logging
 logging.getLogger('asyncua').setLevel(logging.WARNING)
+logging.getLogger('opcua').setLevel(logging.WARNING)
+logging.getLogger('uaclient').setLevel(logging.WARNING)
 
 def convert_byte_order(registers, byte_order='ABCD', data_type='FLOAT32'):
     """
@@ -91,10 +93,10 @@ def convert_byte_order(registers, byte_order='ABCD', data_type='FLOAT32'):
     return None
 
 
-class PollingEngine:
     def __init__(self):
         self.running = False
         self.store = GlobalDataStore()
+        self._opcua_clients = {} # Cache for persistent OPC UA connections
 
     async def start(self):
         self.running = True
@@ -286,11 +288,22 @@ class PollingEngine:
 
     async def _poll_opc_ua(self, device: models.Device):
         params = device.connection_params
-        url = params.get("url") # e.g. "opc.tcp://localhost:4840"
+        url = params.get("url")
+        device_id = device.id
+        
+        client = self._opcua_clients.get(device_id)
         
         try:
-            client = OpcUaClient(url)
-            await client.connect()
+            # Connect if not connected
+            if not client:
+                client = OpcUaClient(url)
+                await client.connect()
+                self._opcua_clients[device_id] = client
+                logging.info(f"Connected to OPC UA device {device.name} at {url}")
+            
+            # Check if still connected (simple check)
+            # asyncua client doesn't have a simple is_connected property that is always reliable
+            # but we can try to read. If it fails, we'll catch exception and reconnect next time.
             
             for tag in device.tags:
                 if tag.enabled and tag.address:
@@ -299,14 +312,28 @@ class PollingEngine:
                         val = await node.read_value()
                         await self.store.update_tag(tag.tag_id, val)
                     except Exception as e:
+                        # If we get a connection related error, we should probably reset the client
                         error_msg = f"OPC UA Error: {str(e)}"
                         logging.error(f"Error reading OPC UA tag {tag.tag_id}: {error_msg}")
                         await self._handle_error(tag, error_msg)
-            
-            await client.disconnect()
+                        
+                        # Check if it's a connection error to trigger reconnect
+                        if "connection" in str(e).lower() or "socket" in str(e).lower() or "timeout" in str(e).lower():
+                            logging.warning(f"OPC UA connection lost for {device.name}, resetting client...")
+                            try:
+                                await client.disconnect()
+                            except:
+                                pass
+                            self._opcua_clients.pop(device_id, None)
+                            break # Stop processing tags for this device this cycle
+
         except Exception as e:
             error_msg = f"OPC UA Connection Error: {str(e)}"
-            logging.error(f"Error connecting to OPC UA {url}: {error_msg}")
+            logging.error(f"Error connecting/polling OPC UA {url}: {error_msg}")
+            
+            # Remove from cache so we try fresh connection next time
+            self._opcua_clients.pop(device_id, None)
+            
             for tag in device.tags:
                 if tag.enabled:
                     await self._handle_error(tag, error_msg)
