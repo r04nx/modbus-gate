@@ -156,6 +156,13 @@ export default function Servers() {
         return maxIOA + 1;
     };
 
+    const inferTypeIdFromDataType = (dataType) => {
+        if (dataType === 'BOOL') return 'M_SP_NA_1'; // Single Point
+        if (dataType?.includes('FLOAT')) return 'M_ME_NC_1'; // Float
+        if (dataType?.includes('INT')) return 'M_ME_NB_1'; // Scaled Value
+        return 'M_ME_NC_1'; // Default to Float
+    };
+
     const handleTagsSelected = (selectedTagObjects) => {
         if (selectorContext === 'MQTT_PUB') {
             // Add tags to specific publication
@@ -185,10 +192,34 @@ export default function Servers() {
                 } else if (activeTab === 'OPC_UA_SERVER') {
                     mapping = { ...mapping, node_name: tag.name || tag.tag_id };
                 } else if (activeTab === 'IEC104_SERVER') {
-                    const ioa = getNextIOA(newMappings);
-                    let typeId = 'M_ME_NC_1'; // Float
-                    if (tag.data_type === 'BOOL') typeId = 'M_SP_NA_1'; // Single Point
-                    mapping = { ...mapping, ioa, type_id: typeId };
+                    const tagParams = tag.params || {};
+
+                    // Smart assignment: use tag's IEC104 params if available
+                    let ioa_offset, base_value, type_id, soe;
+
+                    if (tag.protocol === 'IEC104' && tagParams.address !== undefined) {
+                        // Tag has IEC104 configuration - use it
+                        ioa_offset = parseInt(tagParams.address) || 0;
+                        base_value = parseInt(tagParams.base_value) || 0;
+                        type_id = tagParams.type_id || inferTypeIdFromDataType(tag.data_type);
+                        soe = tagParams.soe || false;
+                    } else {
+                        // No IEC104 config - auto-assign
+                        const nextIOA = getNextIOA(newMappings);
+                        ioa_offset = nextIOA;
+                        base_value = 0;
+                        type_id = inferTypeIdFromDataType(tag.data_type);
+                        soe = false;
+                    }
+
+                    mapping = {
+                        ...mapping,
+                        ioa: ioa_offset,
+                        base_value: base_value,
+                        type_id: type_id,
+                        soe: soe,
+                        cot: 'SPONTANEOUS'
+                    };
                 }
 
                 newMappings.push(mapping);
@@ -702,53 +733,98 @@ export default function Servers() {
                         <thead className="bg-surfaceHighlight/20 text-text-secondary font-medium">
                             <tr>
                                 <th className="px-6 py-3">Tag ID</th>
-                                <th className="px-6 py-3">IOA</th>
+                                <th className="px-6 py-3">Base Value</th>
+                                <th className="px-6 py-3">IOA Offset</th>
+                                <th className="px-6 py-3">Computed IOA</th>
                                 <th className="px-6 py-3">Type ID</th>
+                                <th className="px-6 py-3">SOE</th>
+                                <th className="px-6 py-3">CoT</th>
                                 <th className="px-6 py-3">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-surfaceHighlight/10">
-                            {(config.config.mappings || []).map((mapping, idx) => (
-                                <tr key={idx} className="hover:bg-surfaceHighlight/5 transition-colors">
-                                    <td className="px-6 py-3 text-white font-mono">{mapping.tag_id}</td>
-                                    <td className="px-6 py-3">
-                                        <input
-                                            type="number"
-                                            value={mapping.ioa}
-                                            onChange={(e) => updateMapping(idx, 'ioa', parseInt(e.target.value))}
-                                            className="w-20 bg-transparent border border-surfaceHighlight/30 rounded px-2 py-1 text-text-secondary focus:text-white focus:border-primary outline-none"
-                                        />
-                                    </td>
-                                    <td className="px-6 py-3">
-                                        <select
-                                            value={mapping.type_id}
-                                            onChange={(e) => updateMapping(idx, 'type_id', e.target.value)}
-                                            className="bg-transparent border border-surfaceHighlight/30 rounded px-2 py-1 text-text-secondary focus:text-white focus:border-primary outline-none text-sm"
-                                            title="Select IEC 104 Type ID"
-                                        >
-                                            <optgroup label="Analog Values">
-                                                <option value="M_ME_NC_1">M_ME_NC_1 - Float (IEEE 754)</option>
-                                                <option value="M_ME_NA_1">M_ME_NA_1 - Normalized (-1.0 to +1.0)</option>
-                                                <option value="M_ME_NB_1">M_ME_NB_1 - Scaled (-32768 to +32767)</option>
-                                                <option value="M_ME_ND_1">M_ME_ND_1 - Normalized (No Quality)</option>
-                                            </optgroup>
-                                            <optgroup label="Digital Values">
-                                                <option value="M_SP_NA_1">M_SP_NA_1 - Single Point (Boolean)</option>
-                                                <option value="M_DP_NA_1">M_DP_NA_1 - Double Point (0-3)</option>
-                                                <option value="M_ST_NA_1">M_ST_NA_1 - Step Position (-64 to +63)</option>
-                                            </optgroup>
-                                            <optgroup label="Other">
-                                                <option value="M_BO_NA_1">M_BO_NA_1 - Bitstring (32 bits)</option>
-                                            </optgroup>
-                                        </select>
-                                    </td>
-                                    <td className="px-6 py-3">
-                                        <button onClick={() => removeMapping(idx)} className="text-text-muted hover:text-warning transition-colors">
-                                            <Trash2 size={16} />
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
+                            {(config.config.mappings || []).map((mapping, idx) => {
+                                const baseValue = parseInt(mapping.base_value || 0);
+                                const ioaOffset = parseInt(mapping.ioa || 0);
+                                const computedIOA = baseValue + ioaOffset;
+
+                                return (
+                                    <tr key={idx} className="hover:bg-surfaceHighlight/5 transition-colors">
+                                        <td className="px-6 py-3 text-white font-mono">{mapping.tag_id}</td>
+                                        <td className="px-6 py-3">
+                                            <input
+                                                type="number"
+                                                value={mapping.base_value || 0}
+                                                onChange={(e) => updateMapping(idx, 'base_value', parseInt(e.target.value) || 0)}
+                                                className="w-24 bg-transparent border border-surfaceHighlight/30 rounded px-2 py-1 text-text-secondary focus:text-white focus:border-primary outline-none"
+                                                title="Base offset for IOA calculation"
+                                            />
+                                        </td>
+                                        <td className="px-6 py-3">
+                                            <input
+                                                type="number"
+                                                value={mapping.ioa || 0}
+                                                onChange={(e) => updateMapping(idx, 'ioa', parseInt(e.target.value) || 0)}
+                                                className="w-20 bg-transparent border border-surfaceHighlight/30 rounded px-2 py-1 text-text-secondary focus:text-white focus:border-primary outline-none"
+                                                title="IOA offset (added to base value)"
+                                            />
+                                        </td>
+                                        <td className="px-6 py-3">
+                                            <span className="text-primary font-mono font-bold">{computedIOA}</span>
+                                        </td>
+                                        <td className="px-6 py-3">
+                                            <select
+                                                value={mapping.type_id || 'M_ME_NC_1'}
+                                                onChange={(e) => updateMapping(idx, 'type_id', e.target.value)}
+                                                className="bg-transparent border border-surfaceHighlight/30 rounded px-2 py-1 text-text-secondary focus:text-white focus:border-primary outline-none text-sm"
+                                                title="Select IEC 104 Type ID"
+                                            >
+                                                <optgroup label="Analog Values">
+                                                    <option value="M_ME_NC_1">M_ME_NC_1 - Float (IEEE 754)</option>
+                                                    <option value="M_ME_NA_1">M_ME_NA_1 - Normalized (-1.0 to +1.0)</option>
+                                                    <option value="M_ME_NB_1">M_ME_NB_1 - Scaled (-32768 to +32767)</option>
+                                                    <option value="M_ME_ND_1">M_ME_ND_1 - Normalized (No Quality)</option>
+                                                </optgroup>
+                                                <optgroup label="Digital Values">
+                                                    <option value="M_SP_NA_1">M_SP_NA_1 - Single Point (Boolean)</option>
+                                                    <option value="M_DP_NA_1">M_DP_NA_1 - Double Point (0-3)</option>
+                                                    <option value="M_ST_NA_1">M_ST_NA_1 - Step Position (-64 to +63)</option>
+                                                </optgroup>
+                                                <optgroup label="Other">
+                                                    <option value="M_BO_NA_1">M_BO_NA_1 - Bitstring (32 bits)</option>
+                                                </optgroup>
+                                            </select>
+                                        </td>
+                                        <td className="px-6 py-3">
+                                            <input
+                                                type="checkbox"
+                                                checked={mapping.soe || false}
+                                                onChange={(e) => updateMapping(idx, 'soe', e.target.checked)}
+                                                className="w-4 h-4 accent-primary cursor-pointer"
+                                                title="Sequence of Events"
+                                            />
+                                        </td>
+                                        <td className="px-6 py-3">
+                                            <select
+                                                value={mapping.cot || 'SPONTANEOUS'}
+                                                onChange={(e) => updateMapping(idx, 'cot', e.target.value)}
+                                                className="bg-transparent border border-surfaceHighlight/30 rounded px-2 py-1 text-text-secondary focus:text-white focus:border-primary outline-none text-xs"
+                                                title="Cause of Transmission"
+                                            >
+                                                <option value="SPONTANEOUS">SPONTANEOUS</option>
+                                                <option value="PERIODIC">PERIODIC</option>
+                                                <option value="INTERROGATED">INTERROGATED</option>
+                                                <option value="REQUEST">REQUEST</option>
+                                            </select>
+                                        </td>
+                                        <td className="px-6 py-3">
+                                            <button onClick={() => removeMapping(idx)} className="text-text-muted hover:text-warning transition-colors">
+                                                <Trash2 size={16} />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>

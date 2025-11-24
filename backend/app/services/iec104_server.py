@@ -232,8 +232,21 @@ class IEC104ServerService:
                             logging.error(f"Span scaling error for {tag_id}: {e}")
                     
                     # Get IOA and Type ID
-                    ioa = int(mapping.get("ioa", 0))
+                    base_value = int(mapping.get("base_value", 0))
+                    ioa_offset = int(mapping.get("ioa", 0))
+                    ioa = base_value + ioa_offset  # Computed IOA
                     type_id = mapping.get("type_id", "M_ME_NC_1")
+                    soe = mapping.get("soe", False)  # Sequence of Events
+                    cot_str = mapping.get("cot", "SPONTANEOUS")  # Cause of Transmission
+                    
+                    # Map CoT string to c104.Cause enum
+                    cot_map = {
+                        "SPONTANEOUS": c104.Cause.SPONTANEOUS,
+                        "PERIODIC": c104.Cause.PERIODIC,
+                        "INTERROGATED": c104.Cause.INTERROGATED,
+                        "REQUEST": c104.Cause.REQUEST
+                    }
+                    cot = cot_map.get(cot_str, c104.Cause.SPONTANEOUS)
                     
                     # Create point if it doesn't exist
                     if tag_id not in self.mapped_points:
@@ -263,7 +276,11 @@ class IEC104ServerService:
                                 logging.warning(f"Unknown type {type_id}, defaulting to M_ME_NC_1")
                                 
                             self.mapped_points[tag_id] = point
-                            logging.info(f"✓ Created IEC 104 point: {tag_id} → IOA {ioa} ({type_name})")
+                            soe_str = " [SOE]" if soe else ""
+                            if base_value > 0:
+                                logging.info(f"✓ Created IEC 104 point: {tag_id} → IOA {ioa} (base:{base_value}+{ioa_offset}) ({type_name}){soe_str}")
+                            else:
+                                logging.info(f"✓ Created IEC 104 point: {tag_id} → IOA {ioa} ({type_name}){soe_str}")
                         except Exception as e:
                             logging.error(f"Error creating point for {tag_id}: {e}")
                             continue
@@ -281,8 +298,8 @@ class IEC104ServerService:
                                 
                                 # Set quality based on tag quality
                                 # Note: c104 library handles quality internally
-                                # We transmit with SPONTANEOUS cause for real-time updates
-                                point.transmit(cause=c104.Cause.SPONTANEOUS)
+                                # Transmit with configured cause (SPONTANEOUS, PERIODIC, etc.)
+                                point.transmit(cause=cot)
                         except Exception as e:
                             # Suppress frequent errors to avoid log spam
                             pass
