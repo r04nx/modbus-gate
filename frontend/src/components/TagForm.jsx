@@ -665,14 +665,34 @@ const TagForm = ({ onClose, onSubmit, editTag = null, initialType = null }) => {
                     )}
 
                     {type === 'USER' && (
-                        <div>
-                            <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">Initial Value</label>
-                            <input
-                                name="initial_value"
-                                value={formData.initial_value}
-                                onChange={handleChange}
-                                className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
-                            />
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">Data Type</label>
+                                <select
+                                    name="data_type"
+                                    value={formData.data_type}
+                                    onChange={handleChange}
+                                    className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                                >
+                                    <option value="STRING">STRING</option>
+                                    <option value="INT16">INT16</option>
+                                    <option value="UINT16">UINT16</option>
+                                    <option value="INT32">INT32</option>
+                                    <option value="UINT32">UINT32</option>
+                                    <option value="FLOAT32">FLOAT32</option>
+                                    <option value="FLOAT64">FLOAT64</option>
+                                    <option value="BOOLEAN">BOOLEAN</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">Initial Value</label>
+                                <input
+                                    name="initial_value"
+                                    value={formData.initial_value}
+                                    onChange={handleChange}
+                                    className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
+                                />
+                            </div>
                         </div>
                     )}
 

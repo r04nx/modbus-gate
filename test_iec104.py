@@ -25,7 +25,7 @@ def test_iec104_client(host='192.168.50.22', port=2404, common_address=1):
     # Track received points
     received_points = {}
     
-    def on_receive_point(point, previous_info, message):
+    def on_receive_point(point: c104.Point, previous_info: c104.Information, message: c104.IncomingMessage) -> bool:
         """Callback when a point value is received"""
         ioa = point.io_address
         value = point.value
@@ -43,7 +43,7 @@ def test_iec104_client(host='192.168.50.22', port=2404, common_address=1):
         print(f"📊 IOA {ioa:5d} | Value: {value:10} | Quality: {quality} | Type: {point.type}")
         return True
     
-    def on_new_point(client, station, io_address, point_type):
+    def on_new_point(client: c104.Client, station: c104.Station, io_address: int, point_type: c104.Type) -> None:
         """Callback when a new point is discovered"""
         print(f"🆕 Discovered Point: IOA {io_address} | Type: {point_type}")
         # Add the point to the station and register callback

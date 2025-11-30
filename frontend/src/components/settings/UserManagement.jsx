@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Users, Plus, Trash2, Key, Activity } from 'lucide-react';
 import axios from 'axios';
+import { TableSkeleton } from '../common/Skeleton';
 
 const UserManagement = () => {
     const [users, setUsers] = useState([]);
@@ -10,6 +11,7 @@ const UserManagement = () => {
     const [selectedUser, setSelectedUser] = useState(null);
     const [formData, setFormData] = useState({ username: '', password: '', role: 'root' });
     const [loading, setLoading] = useState(false);
+    const [initialLoading, setInitialLoading] = useState(true);
 
     // Use dynamic API base URL instead of hardcoded localhost
     const API_HOST = window.location.hostname;
@@ -18,8 +20,12 @@ const UserManagement = () => {
     const getAuthHeader = () => ({ Authorization: `Basic ${btoa('admin:admin')}` });
 
     useEffect(() => {
-        fetchUsers();
-        fetchSessions();
+        const loadData = async () => {
+            setInitialLoading(true);
+            await Promise.all([fetchUsers(), fetchSessions()]);
+            setInitialLoading(false);
+        };
+        loadData();
     }, []);
 
     const fetchUsers = async () => {
@@ -110,55 +116,61 @@ const UserManagement = () => {
                     </button>
                 </div>
 
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                        <thead className="bg-surfaceHighlight/20 text-text-secondary font-medium">
-                            <tr>
-                                <th className="px-6 py-3">Username</th>
-                                <th className="px-6 py-3">Role</th>
-                                <th className="px-6 py-3">Last Login</th>
-                                <th className="px-6 py-3 text-right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-surfaceHighlight/10">
-                            {users.map((user) => (
-                                <tr key={user.id} className="hover:bg-surfaceHighlight/5 transition-colors">
-                                    <td className="px-6 py-3 text-white font-medium">{user.username}</td>
-                                    <td className="px-6 py-3">
-                                        <span className={`px-3 py-1 rounded-lg text-xs font-semibold ${user.role === 'superroot'
-                                            ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
-                                            : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
-                                            }`}>
-                                            {user.role}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-3 text-text-secondary text-sm">
-                                        {user.last_login ? new Date(user.last_login).toLocaleString() : 'Never'}
-                                    </td>
-                                    <td className="px-6 py-3 text-right">
-                                        <button
-                                            onClick={() => {
-                                                setSelectedUser(user);
-                                                setShowResetModal(true);
-                                            }}
-                                            className="text-cyan-400 hover:text-cyan-300 mr-3 transition-colors"
-                                            title="Reset Password"
-                                        >
-                                            <Key className="w-4 h-4" />
-                                        </button>
-                                        <button
-                                            onClick={() => handleDeleteUser(user.id)}
-                                            className="text-text-muted hover:text-red-400 transition-colors"
-                                            title="Delete User"
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
-                                    </td>
+                {initialLoading ? (
+                    <div className="p-6">
+                        <TableSkeleton rows={3} columns={4} />
+                    </div>
+                ) : (
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-surfaceHighlight/20 text-text-secondary font-medium">
+                                <tr>
+                                    <th className="px-6 py-3">Username</th>
+                                    <th className="px-6 py-3">Role</th>
+                                    <th className="px-6 py-3">Last Login</th>
+                                    <th className="px-6 py-3 text-right">Actions</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
+                            </thead>
+                            <tbody className="divide-y divide-surfaceHighlight/10">
+                                {users.map((user) => (
+                                    <tr key={user.id} className="hover:bg-surfaceHighlight/5 transition-colors">
+                                        <td className="px-6 py-3 text-white font-medium">{user.username}</td>
+                                        <td className="px-6 py-3">
+                                            <span className={`px-3 py-1 rounded-lg text-xs font-semibold ${user.role === 'superroot'
+                                                ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                                                : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+                                                }`}>
+                                                {user.role}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-3 text-text-secondary text-sm">
+                                            {user.last_login ? new Date(user.last_login).toLocaleString() : 'Never'}
+                                        </td>
+                                        <td className="px-6 py-3 text-right">
+                                            <button
+                                                onClick={() => {
+                                                    setSelectedUser(user);
+                                                    setShowResetModal(true);
+                                                }}
+                                                className="text-cyan-400 hover:text-cyan-300 mr-3 transition-colors"
+                                                title="Reset Password"
+                                            >
+                                                <Key className="w-4 h-4" />
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteUser(user.id)}
+                                                className="text-text-muted hover:text-red-400 transition-colors"
+                                                title="Delete User"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
             </div>
 
             {/* Active Sessions */}

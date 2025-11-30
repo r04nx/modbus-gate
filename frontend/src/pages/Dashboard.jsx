@@ -3,6 +3,7 @@ import { getTagValues, getServerConfig } from '../services/api';
 import { Cpu, HardDrive, Activity, Clock, Wifi, Server } from 'lucide-react';
 import Sparkline from '../components/Sparkline';
 import clsx from 'clsx';
+import { CardSkeleton, Skeleton } from '../components/common/Skeleton';
 
 const MetricCard = ({ title, value, unit, icon: Icon, color, subtext, history = [] }) => (
     <div className="bg-surface/50 backdrop-blur-md border border-surfaceHighlight rounded-2xl p-6 shadow-card hover:shadow-glow transition-all duration-300 group relative overflow-hidden">
@@ -29,6 +30,7 @@ const MetricCard = ({ title, value, unit, icon: Icon, color, subtext, history = 
 );
 
 const Dashboard = () => {
+    const [loading, setLoading] = useState(true);
     const [metrics, setMetrics] = useState({
         cpu: 0,
         ram: 0,
@@ -112,6 +114,8 @@ const Dashboard = () => {
                 });
             } catch (error) {
                 console.error("Failed to fetch metrics", error);
+            } finally {
+                setLoading(false);
             }
         };
 
@@ -163,102 +167,130 @@ const Dashboard = () => {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <MetricCard
-                    title="CPU Usage"
-                    value={metrics.cpu}
-                    unit="%"
-                    icon={Cpu}
-                    color="from-primary to-blue-400"
-                    subtext="4 Cores Active"
-                    history={history.cpu}
-                />
-                <MetricCard
-                    title="RAM Usage"
-                    value={metrics.ram}
-                    unit="%"
-                    icon={Activity}
-                    color="from-accent to-cyan-400"
-                    subtext="8GB Total Memory"
-                    history={history.ram}
-                />
-                <MetricCard
-                    title="Disk Usage"
-                    value={metrics.disk}
-                    unit="%"
-                    icon={HardDrive}
-                    color="from-warning to-orange-400"
-                    subtext="/dev/sda1"
-                    history={history.disk}
-                />
-                <MetricCard
-                    title="System Uptime"
-                    value={formatUptime(metrics.uptime)}
-                    unit=""
-                    icon={Clock}
-                    color="from-success to-emerald-400"
-                    subtext={`Host: ${metrics.hostname}`}
-                    history={history.uptime}
-                />
-            </div>
+            {loading ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    {[1, 2, 3, 4].map(i => <CardSkeleton key={i} />)}
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <MetricCard
+                        title="CPU Usage"
+                        value={metrics.cpu}
+                        unit="%"
+                        icon={Cpu}
+                        color="from-primary to-blue-400"
+                        subtext="4 Cores Active"
+                        history={history.cpu}
+                    />
+                    <MetricCard
+                        title="RAM Usage"
+                        value={metrics.ram}
+                        unit="%"
+                        icon={Activity}
+                        color="from-accent to-cyan-400"
+                        subtext="8GB Total Memory"
+                        history={history.ram}
+                    />
+                    <MetricCard
+                        title="Disk Usage"
+                        value={metrics.disk}
+                        unit="%"
+                        icon={HardDrive}
+                        color="from-warning to-orange-400"
+                        subtext="/dev/sda1"
+                        history={history.disk}
+                    />
+                    <MetricCard
+                        title="System Uptime"
+                        value={formatUptime(metrics.uptime)}
+                        unit=""
+                        icon={Clock}
+                        color="from-success to-emerald-400"
+                        subtext={`Host: ${metrics.hostname}`}
+                        history={history.uptime}
+                    />
+                </div>
+            )}
 
             {/* Additional Info Section */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-surface/50 backdrop-blur-md border border-surfaceHighlight rounded-2xl p-6">
-                    <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                        <Server size={20} className="text-primary" />
-                        System Information
-                    </h3>
-                    <div className="space-y-4">
-                        <div className="flex justify-between items-center p-3 bg-surfaceHighlight/20 rounded-xl">
-                            <span className="text-text-secondary">Hostname</span>
-                            <span className="text-white font-medium">{metrics.hostname}</span>
+                {loading ? (
+                    <>
+                        <div className="bg-surface/50 backdrop-blur-md border border-surfaceHighlight rounded-2xl p-6 space-y-4">
+                            <Skeleton className="h-6 w-48" />
+                            <div className="space-y-4">
+                                <Skeleton className="h-12 w-full rounded-xl" />
+                                <Skeleton className="h-12 w-full rounded-xl" />
+                            </div>
                         </div>
-                        {metrics.networkInterfaces.length > 0 ? (
-                            metrics.networkInterfaces.map((iface, index) => (
-                                <div key={index} className="flex justify-between items-center p-3 bg-surfaceHighlight/20 rounded-xl">
-                                    <span className="text-text-secondary">{iface.interface}</span>
-                                    <span className="text-white font-medium font-mono text-sm">{iface.ip}</span>
+                        <div className="bg-surface/50 backdrop-blur-md border border-surfaceHighlight rounded-2xl p-6 space-y-4">
+                            <Skeleton className="h-6 w-48" />
+                            <div className="space-y-4">
+                                <Skeleton className="h-12 w-full rounded-xl" />
+                                <Skeleton className="h-12 w-full rounded-xl" />
+                                <Skeleton className="h-12 w-full rounded-xl" />
+                            </div>
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        <div className="bg-surface/50 backdrop-blur-md border border-surfaceHighlight rounded-2xl p-6">
+                            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                                <Server size={20} className="text-primary" />
+                                System Information
+                            </h3>
+                            <div className="space-y-4">
+                                <div className="flex justify-between items-center p-3 bg-surfaceHighlight/20 rounded-xl">
+                                    <span className="text-text-secondary">Hostname</span>
+                                    <span className="text-white font-medium">{metrics.hostname}</span>
                                 </div>
-                            ))
-                        ) : (
-                            <div className="flex justify-between items-center p-3 bg-surfaceHighlight/20 rounded-xl">
-                                <span className="text-text-secondary">Network</span>
-                                <span className="text-white font-medium">N/A</span>
+                                {metrics.networkInterfaces.length > 0 ? (
+                                    metrics.networkInterfaces.map((iface, index) => (
+                                        <div key={index} className="flex justify-between items-center p-3 bg-surfaceHighlight/20 rounded-xl">
+                                            <span className="text-text-secondary">{iface.interface}</span>
+                                            <span className="text-white font-medium font-mono text-sm">{iface.ip}</span>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div className="flex justify-between items-center p-3 bg-surfaceHighlight/20 rounded-xl">
+                                        <span className="text-text-secondary">Network</span>
+                                        <span className="text-white font-medium">N/A</span>
+                                    </div>
+                                )}
                             </div>
-                        )}
-                    </div>
-                </div>
+                        </div>
 
-                <div className="bg-surface/50 backdrop-blur-md border border-surfaceHighlight rounded-2xl p-6">
-                    <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                        <Wifi size={20} className="text-accent" />
-                        Server Status
-                    </h3>
-                    <div className="space-y-4">
-                        <div className="flex justify-between items-center p-3 bg-surfaceHighlight/20 rounded-xl">
-                            <div className="flex items-center gap-3">
-                                <div className={clsx("w-2 h-2 rounded-full shadow-[0_0_8px_rgba(52,211,153,0.6)]", serverStatus.modbus ? "bg-emerald-400 animate-pulse" : "bg-red-500")} />
-                                <span className="text-text-secondary">Modbus Server</span>
+                        <div className="bg-surface/50 backdrop-blur-md border border-surfaceHighlight rounded-2xl p-6">
+                            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                                <Wifi size={20} className="text-accent" />
+                                Server Status
+                            </h3>
+                            <div className="space-y-4">
+                                <div className="flex justify-between items-center p-3 bg-surfaceHighlight/20 rounded-xl">
+                                    <div className="flex items-center gap-3">
+                                        <div className={clsx("w-2 h-2 rounded-full shadow-[0_0_8px_rgba(52,211,153,0.6)]", serverStatus.modbus ? "bg-emerald-400 animate-pulse" : "bg-red-500")} />
+                                        <span className="text-text-secondary">Modbus Server</span>
+                                    </div>
+                                    <span className="text-white font-medium text-sm">Port 5020</span>
+                                </div>
+                                <div className="flex justify-between items-center p-3 bg-surfaceHighlight/20 rounded-xl">
+                                    <div className="flex items-center gap-3">
+                                        <div className={clsx("w-2 h-2 rounded-full shadow-[0_0_8px_rgba(52,211,153,0.6)]", serverStatus.opcua ? "bg-emerald-400 animate-pulse" : "bg-red-500")} />
+                                        <span className="text-text-secondary">OPC UA Server</span>
+                                    </div>
+                                    <span className="text-white font-medium text-sm">Port 4840</span>
+                                </div>
+                                <div className="flex justify-between items-center p-3 bg-surfaceHighlight/20 rounded-xl">
+                                    <div className="flex items-center gap-3">
+                                        <div className={clsx("w-2 h-2 rounded-full shadow-[0_0_8px_rgba(52,211,153,0.6)]", serverStatus.iec104 ? "bg-emerald-400 animate-pulse" : "bg-red-500")} />
+                                        <span className="text-text-secondary">IEC104 Server</span>
+                                    </div>
+                                    <span className="text-white font-medium text-sm">Port 2404</span>
+                                </div>
                             </div>
-                            <span className="text-white font-medium text-sm">Port 5020</span>
                         </div>
-                        <div className="flex justify-between items-center p-3 bg-surfaceHighlight/20 rounded-xl">
-                            <div className="flex items-center gap-3">
-                                <div className={clsx("w-2 h-2 rounded-full shadow-[0_0_8px_rgba(52,211,153,0.6)]", serverStatus.opcua ? "bg-emerald-400 animate-pulse" : "bg-red-500")} />
-                                <span className="text-text-secondary">OPC UA Server</span>
-                            </div>
-                            <span className="text-white font-medium text-sm">Port 4840</span>
-                        </div>
-                        <div className="flex justify-between items-center p-3 bg-surfaceHighlight/20 rounded-xl">
-                            <div className="flex items-center gap-3">
-                                <div className={clsx("w-2 h-2 rounded-full shadow-[0_0_8px_rgba(52,211,153,0.6)]", serverStatus.iec104 ? "bg-emerald-400 animate-pulse" : "bg-red-500")} />
-                                <span className="text-text-secondary">IEC104 Server</span>
-                            </div>
-                            <span className="text-white font-medium text-sm">Port 2404</span>
-                        </div>
-                    </div>
-                </div>
+                    </>
+                )}
             </div>
         </div>
     );

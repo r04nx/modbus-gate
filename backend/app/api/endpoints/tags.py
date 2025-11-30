@@ -152,7 +152,7 @@ async def write_tag(tag_id: str, write_data: schemas.TagWrite, db: Session = Dep
 
 
 @router.get("/export")
-def export_tags(type: str, db: Session = Depends(get_db)):
+async def export_tags(type: str, db: Session = Depends(get_db)):
     """Export tags as CSV filtered by type (IO, CALCULATION, USER)"""
     from fastapi.responses import StreamingResponse
     import io
@@ -164,20 +164,50 @@ def export_tags(type: str, db: Session = Depends(get_db)):
     
     tags = db.query(models.Tag).filter(models.Tag.type == type).all()
     
+    # Pre-fetch devices for IO tags
+    devices_map = {}
+    if type == "IO":
+        devices = db.query(models.Device).all()
+        devices_map = {d.id: d.name for d in devices}
+    
+    # Pre-fetch current values for USER tags
+    current_values = {}
+    if type == "USER":
+        store = GlobalDataStore()
+        all_data = await store.get_all_tags(history_limit=0)
+        for tag_id, val in all_data.items():
+            current_values[tag_id] = val.value
+
     output = io.StringIO()
     
     if type == "IO":
-        writer = csv.DictWriter(output, fieldnames=['tag_id', 'name', 'description', 'device_id', 'address', 'data_type', 'params'])
+        # Enhanced CSV structure for Modbus IO tags
+        fieldnames = [
+            'tag_id', 'name', 'device_name', 'description', 'address', 'data_type',
+            'register_type', 'byte_order', 'start_bit', 'bit_length', 
+            'span_low', 'span_high', 'soe',
+            'fallback_type', 'fallback_value'
+        ]
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
         for tag in tags:
+            params = tag.params or {}
             writer.writerow({
                 'tag_id': tag.tag_id,
                 'name': tag.name,
+                'device_name': devices_map.get(tag.device_id, 'Unknown'),
                 'description': tag.description or '',
-                'device_id': tag.device_id or '',
                 'address': tag.address or '',
                 'data_type': tag.data_type or '',
-                'params': json.dumps(tag.params) if tag.params else ''
+                'register_type': params.get('register_type', ''),
+                'byte_order': params.get('byte_order', ''),
+                'start_bit': params.get('start_bit', ''),
+                'bit_length': params.get('length', ''),
+                'span_low': params.get('span_low', ''),
+                'span_high': params.get('span_high', ''),
+                'soe': str(params.get('soe', '')).lower(),
+                'fallback_type': tag.fallback_type or 'none',
+                'fallback_value': tag.fallback_value or ''
             })
     elif type == "CALCULATION":
         writer = csv.DictWriter(output, fieldnames=['tag_id', 'name', 'description', 'calculation_formula'])
@@ -190,14 +220,18 @@ def export_tags(type: str, db: Session = Depends(get_db)):
                 'calculation_formula': tag.calculation_formula or ''
             })
     elif type == "USER":
-        writer = csv.DictWriter(output, fieldnames=['tag_id', 'name', 'description', 'initial_value'])
+        writer = csv.DictWriter(output, fieldnames=['tag_id', 'name', 'description', 'data_type', 'initial_value', 'current_value', 'fallback_type', 'fallback_value'])
         writer.writeheader()
         for tag in tags:
             writer.writerow({
                 'tag_id': tag.tag_id,
                 'name': tag.name,
                 'description': tag.description or '',
-                'initial_value': tag.initial_value or ''
+                'data_type': tag.data_type or 'STRING',
+                'initial_value': tag.initial_value or '',
+                'current_value': current_values.get(tag.tag_id, ''),
+                'fallback_type': tag.fallback_type or 'last_success',
+                'fallback_value': tag.fallback_value or ''
             })
     
     output.seek(0)
@@ -213,6 +247,7 @@ async def import_tags(type: str, file: UploadFile = File(...), db: Session = Dep
     import csv
     import io
     import json
+    import re
     
     if type not in ["IO", "CALCULATION", "USER"]:
         raise HTTPException(status_code=400, detail="Invalid type. Must be IO, CALCULATION, or USER")
@@ -223,41 +258,100 @@ async def import_tags(type: str, file: UploadFile = File(...), db: Session = Dep
     csv_reader = csv.DictReader(io.StringIO(decoded))
     
     created_count = 0
+    updated_count = 0
     errors = []
     
+    # Pre-fetch devices for IO tags lookup
+    devices_map = {}
+    if type == "IO":
+        devices = db.query(models.Device).all()
+        devices_map = {d.name: d.id for d in devices}
+    
+    def generate_tag_id(name):
+        # Simple slugify: lowercase, replace spaces/specials with underscore
+        clean = re.sub(r'[^a-zA-Z0-9]', '_', name.lower())
+        return f"tag_{clean}"
+
     for row_num, row in enumerate(csv_reader, start=2):  # Start at 2 (1 is header)
         try:
-            # Check if tag_id already exists
-            existing = db.query(models.Tag).filter(models.Tag.tag_id == row['tag_id']).first()
-            if existing:
-                errors.append(f"Row {row_num}: Tag ID '{row['tag_id']}' already exists")
+            name = row.get('name')
+            if not name:
+                errors.append(f"Row {row_num}: Name is required")
                 continue
+
+            # Determine tag_id
+            tag_id = row.get('tag_id')
+            if not tag_id or tag_id.strip() == '':
+                tag_id = generate_tag_id(name)
+                # Ensure uniqueness for new tags if auto-generated
+                original_gen_id = tag_id
+                counter = 1
+                while db.query(models.Tag).filter(models.Tag.tag_id == tag_id).first():
+                    tag_id = f"{original_gen_id}_{counter}"
+                    counter += 1
+            
+            # Check if tag exists
+            existing_tag = db.query(models.Tag).filter(models.Tag.tag_id == tag_id).first()
             
             tag_data = {
-                'tag_id': row['tag_id'],
-                'name': row['name'],
+                'name': name,
                 'description': row.get('description', ''),
                 'type': type,
-                'enabled': True
+                'enabled': True,
+                'fallback_type': row.get('fallback_type', 'none'),
+                'fallback_value': row.get('fallback_value', '')
             }
             
             if type == "IO":
-                tag_data['device_id'] = int(row['device_id']) if row.get('device_id') else None
+                device_name = row.get('device_name')
+                if not device_name:
+                    errors.append(f"Row {row_num}: Device Name is required for IO tags")
+                    continue
+                
+                device_id = devices_map.get(device_name)
+                if not device_id:
+                    errors.append(f"Row {row_num}: Device '{device_name}' not found")
+                    continue
+                
+                tag_data['device_id'] = device_id
                 tag_data['address'] = row.get('address', '')
                 tag_data['data_type'] = row.get('data_type', '')
-                if row.get('params'):
-                    try:
-                        tag_data['params'] = json.loads(row['params'])
-                    except json.JSONDecodeError:
-                        tag_data['params'] = {}
+                
+                # Reconstruct params from flattened columns
+                params = {}
+                if row.get('register_type'): params['register_type'] = row.get('register_type')
+                if row.get('byte_order'): params['byte_order'] = row.get('byte_order')
+                if row.get('start_bit'): params['start_bit'] = int(row.get('start_bit'))
+                if row.get('bit_length'): params['length'] = int(row.get('bit_length'))
+                if row.get('span_low'): params['span_low'] = float(row.get('span_low'))
+                if row.get('span_high'): params['span_high'] = float(row.get('span_high'))
+                if row.get('soe'): params['soe'] = row.get('soe').lower() == 'true'
+                
+                tag_data['params'] = params
+
             elif type == "CALCULATION":
                 tag_data['calculation_formula'] = row.get('calculation_formula', '')
             elif type == "USER":
                 tag_data['initial_value'] = row.get('initial_value', '')
+                tag_data['data_type'] = row.get('data_type', 'STRING')
+                
+                # Update current value if provided
+                current_val = row.get('current_value')
+                if current_val is not None and current_val != '':
+                    store = GlobalDataStore()
+                    await store.update_tag(tag_id, current_val)
             
-            db_tag = models.Tag(**tag_data)
-            db.add(db_tag)
-            created_count += 1
+            if existing_tag:
+                # Update existing
+                for key, value in tag_data.items():
+                    setattr(existing_tag, key, value)
+                updated_count += 1
+            else:
+                # Create new
+                tag_data['tag_id'] = tag_id
+                db_tag = models.Tag(**tag_data)
+                db.add(db_tag)
+                created_count += 1
             
         except Exception as e:
             errors.append(f"Row {row_num}: {str(e)}")
@@ -266,6 +360,7 @@ async def import_tags(type: str, file: UploadFile = File(...), db: Session = Dep
     
     return {
         "created": created_count,
+        "updated": updated_count,
         "errors": errors,
         "total_rows": row_num - 1 if 'row_num' in locals() else 0
     }

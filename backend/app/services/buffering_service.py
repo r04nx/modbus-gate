@@ -15,8 +15,10 @@ from app.models.storage_policy import StoragePolicy, PolicyType
 
 logger = logging.getLogger(__name__)
 
-BUFFER_DB_PATH = "/opt/modbus-gate/buffer.db"
-BUFFER_FILES_DIR = Path("/opt/modbus-gate/buffered_files")
+# Use environment variable or default to local directory
+BUFFER_ROOT = Path(os.getenv("BUFFER_DIR", "buffered_data"))
+BUFFER_DB_PATH = BUFFER_ROOT / "buffer.db"
+BUFFER_FILES_DIR = BUFFER_ROOT / "files"
 
 class BufferingService:
     _instance = None
@@ -73,6 +75,7 @@ class BufferingService:
 
     def ensure_dirs(self):
         """Ensure storage directories exist."""
+        BUFFER_ROOT.mkdir(parents=True, exist_ok=True)
         BUFFER_FILES_DIR.mkdir(parents=True, exist_ok=True)
 
     async def start(self):

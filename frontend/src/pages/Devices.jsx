@@ -5,6 +5,7 @@ import DeviceForm from '../components/DeviceForm';
 import TestConnectionModal from '../components/TestConnectionModal';
 import { Plus, Trash2, Server, MoreVertical, RefreshCw, Power, Activity, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import clsx from 'clsx';
+import { CardSkeleton } from '../components/common/Skeleton';
 
 const Devices = () => {
     const navigate = useNavigate();
@@ -103,8 +104,8 @@ const Devices = () => {
             </div>
 
             {loading ? (
-                <div className="flex justify-center items-center h-64">
-                    <RefreshCw className="animate-spin text-primary" size={32} />
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {[1, 2, 3].map(i => <CardSkeleton key={i} />)}
                 </div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

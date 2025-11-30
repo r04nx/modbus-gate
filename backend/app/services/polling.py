@@ -454,7 +454,7 @@ class PollingEngine:
             received_data[str(point.io_address)] = point.value
             return True
 
-        def on_new_point(client, station, io_address, point_type):
+        def on_new_point(client: c104.Client, station: c104.Station, io_address: int, point_type: c104.Type) -> None:
             # We need to add the point to the station to interact with it
             # and register the callback
             point = station.add_point(io_address, point_type)
@@ -469,7 +469,8 @@ class PollingEngine:
             client.start()
             
             # Send interrogation
-            connection.send_interrogation_command()
+            ca = int(params.get("common_address", 0))
+            connection.interrogation(common_address=ca)
             
             # Wait a bit for responses
             await asyncio.sleep(1.0)

@@ -117,8 +117,11 @@ const BufferedData = () => {
             // Create download link
             const url = window.URL.createObjectURL(new Blob([response.data]));
             const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `buffered_${selectedTag}_${timeRange}.csv`);
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const tagName = tags.find(t => t.id === selectedTag)?.name || selectedTag;
+            const safeTagName = tagName.replace(/[^a-zA-Z0-9-_]/g, '_');
+
+            link.setAttribute('download', `buffered_data_${safeTagName}_${timeRange}_${timestamp}.csv`);
             document.body.appendChild(link);
             link.click();
             link.remove();

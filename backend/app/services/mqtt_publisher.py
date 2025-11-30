@@ -108,7 +108,7 @@ class MQTTPublisherService:
                     continue
 
                 brokers_config = config_data.get("brokers", [])
-                publications = config_data.get("publications", [])
+                self.publications = config_data.get("publications", [])
 
                 # Manage Brokers
                 current_broker_ids = set()
@@ -195,7 +195,7 @@ class MQTTPublisherService:
                 current_time = time.time()
                 tags = await global_store.get_all_tags()
 
-                for pub in publications:
+                for pub in self.publications:
                     pub_id = pub.get("id")
                     interval = int(pub.get("interval", 5))
                     
@@ -206,6 +206,7 @@ class MQTTPublisherService:
                     # Time to publish
                     broker_id = pub.get("broker_id")
                     if broker_id not in self.brokers:
+                        logging.warning(f"Broker {broker_id} not found/connected for publication {pub_id}")
                         continue
                         
                     topic = pub.get("topic")
@@ -247,27 +248,37 @@ class MQTTPublisherService:
                                 # Skip timestamp placeholders (already handled)
                                 if tag_id in ['timestamp', 'timestamp_ms']:
                                     continue
-                                    
+                                
                                 # Replace with actual tag value if it exists
+                                val = None
                                 if tag_id in tags:
-                                    val = tags[tag_id].value
-                                    # Convert value to string, handling different types
-                                    if isinstance(val, str):
-                                        val_str = f'"{val}"'  # Add quotes for JSON strings
-                                    elif isinstance(val, (int, float)):
-                                        val_str = str(val)
-                                    elif isinstance(val, bool):
-                                        val_str = 'true' if val else 'false'
-                                    else:
-                                        val_str = json.dumps(val)
+                                    tag_obj = tags[tag_id]
+                                    val = tag_obj.value
                                     
-                                    payload_str = payload_str.replace(f"{{{{{tag_id}}}}}", val_str)
+                                    # Fallback Logic
+                                    if val is None:
+                                        if tag_obj.fallback_type == 'last_success':
+                                            val = tag_obj.last_success_value
+                                        elif tag_obj.fallback_type == 'default':
+                                            val = tag_obj.fallback_value
+                                
+                                # Convert value to string, handling different types
+                                if val is None:
+                                    val_str = "null"
+                                elif isinstance(val, str):
+                                    val_str = val  # Don't add quotes, let template handle it
+                                elif isinstance(val, (int, float)):
+                                    val_str = str(val)
+                                elif isinstance(val, bool):
+                                    val_str = 'true' if val else 'false'
                                 else:
-                                    # Tag not found, replace with null
-                                    payload_str = payload_str.replace(f"{{{{{tag_id}}}}}", "null")
+                                    val_str = json.dumps(val)
+                                
+                                payload_str = payload_str.replace(f"{{{{{tag_id}}}}}", val_str)
                         
                         self.brokers[broker_id].publish(topic, payload_str)
                         self.last_publish[pub_id] = current_time
+                        logging.info(f"Published to {topic} via {broker_id}: {payload_str}")
                         
                     except Exception as e:
                         logging.error(f"Error publishing {pub_id}: {e}")

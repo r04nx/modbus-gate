@@ -1,0 +1,24 @@
+name,device_name,description,address,data_type,params
+rane,LocalModbus,,100,INT16,
+System 1,LocalModbus,Auto-generated tag for address 1,1,INT16,
+System 2,LocalModbus,Auto-generated tag for address 2,2,INT16,
+System 3,LocalModbus,Auto-generated tag for address 3,3,INT16,
+System 4,LocalModbus,Auto-generated tag for address 4,4,INT16,
+System 5,LocalModbus,Auto-generated tag for address 5,5,INT16,
+System,localopc,,ns=2;s=Ram Total,INT16,
+RamUsage,localopc,,ns=2;s=Ram Usage,INT16,
+Modbus Register 1,Modbus PLC 1,,40001,INT16,"{""register_type"": ""HOLDING"", ""byte_order"": ""ABCD""}"
+Modbus Register 2,Modbus PLC 1,,40002,INT16,"{""register_type"": ""HOLDING"", ""byte_order"": ""ABCD""}"
+Modbus Register 3,Modbus PLC 1,,40003,INT16,"{""register_type"": ""HOLDING"", ""byte_order"": ""ABCD""}"
+Modbus Register 4,Modbus PLC 1,,40004,INT16,"{""register_type"": ""HOLDING"", ""byte_order"": ""ABCD""}"
+Modbus Register 5,Modbus PLC 1,,40005,INT16,"{""register_type"": ""HOLDING"", ""byte_order"": ""ABCD""}"
+Modbus Register 6,Modbus PLC 1,,40006,INT16,"{""register_type"": ""HOLDING"", ""byte_order"": ""ABCD""}"
+Modbus Register 7,Modbus PLC 1,,40007,INT16,"{""register_type"": ""HOLDING"", ""byte_order"": ""ABCD""}"
+Modbus Register 8,Modbus PLC 1,,40008,INT16,"{""register_type"": ""HOLDING"", ""byte_order"": ""ABCD""}"
+Modbus Register 9,Modbus PLC 1,,40009,INT16,"{""register_type"": ""HOLDING"", ""byte_order"": ""ABCD""}"
+Modbus Register 10,Modbus PLC 1,,40010,INT16,"{""register_type"": ""HOLDING"", ""byte_order"": ""ABCD""}"
+IEC Point 1,IEC104 RTU 1,,101,FLOAT32,"{""type_id"": ""M_ME_NC_1"", ""base_value"": 0, ""soe"": true}"
+IEC Point 2,IEC104 RTU 1,,102,FLOAT32,"{""type_id"": ""M_ME_NC_1"", ""base_value"": 0, ""soe"": true}"
+IEC Point 3,IEC104 RTU 1,,103,FLOAT32,"{""type_id"": ""M_ME_NC_1"", ""base_value"": 0, ""soe"": true}"
+IEC Point 4,IEC104 RTU 1,,104,FLOAT32,"{""type_id"": ""M_ME_NC_1"", ""base_value"": 0, ""soe"": true}"
+IEC Point 5,IEC104 RTU 1,,105,FLOAT32,"{""type_id"": ""M_ME_NC_1"", ""base_value"": 0, ""soe"": true}"

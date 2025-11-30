@@ -1,11 +1,13 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Save, Server, Activity, Settings, RefreshCw, CheckCircle, XCircle, Plus, Trash2, Search, AlertTriangle, Edit2, ChevronRight, ChevronDown, Database, Network, Wifi, Gauge, Tag, Calculator, BarChart3, User, Wand2, Copy, Upload } from 'lucide-react';
 import axios from 'axios';
 import clsx from 'clsx';
+import { TableSkeleton, FormSkeleton, Skeleton } from '../components/common/Skeleton';
 import TagMappingSelector from '../components/TagMappingSelector';
 import JsonEditor from '../components/JsonEditor';
 import CertificateUpload from '../components/CertificateUpload';
-import { getTags, listCertificates } from '../services/api';
+import { getTags, listCertificates, getDevices } from '../services/api';
 
 // Use relative URL or window.location to avoid hardcoded localhost
 const API_URL = `http://${window.location.hostname}:8000/api/v1`;
@@ -34,12 +36,14 @@ export default function Servers() {
         enabled: false,
         config: { mappings: [], brokers: [], publications: [] }
     });
+    const [initialConfig, setInitialConfig] = useState(null);
 
     // Tag Selector State
     const [showTagSelector, setShowTagSelector] = useState(false);
     const [selectorContext, setSelectorContext] = useState(null); // 'MAPPING' or 'MQTT_PUB'
     const [currentPubId, setCurrentPubId] = useState(null);
     const [availableTags, setAvailableTags] = useState([]);
+    const [devicesMap, setDevicesMap] = useState({});
     const [expandedItems, setExpandedItems] = useState({});
 
     // Certificate State
@@ -71,12 +75,44 @@ export default function Servers() {
         { id: 'MQTT_PUBLISHER', label: 'MQTT Publisher', icon: RefreshCw, color: 'text-emerald-400' },
     ];
 
+    // Check for unsaved changes
+    const isDirty = useMemo(() => {
+        if (!initialConfig || !config) return false;
+        return JSON.stringify(config) !== JSON.stringify(initialConfig);
+    }, [config, initialConfig]);
+
+    // Warn on browser close/refresh
+    useEffect(() => {
+        const handleBeforeUnload = (e) => {
+            if (isDirty) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        };
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, [isDirty]);
+
+    // Handle Tab Switching with Dirty Check
+    const handleTabChange = (newTabId) => {
+        if (activeTab === newTabId) return;
+
+        if (isDirty) {
+            if (window.confirm('You have unsaved changes. Are you sure you want to switch tabs? Your changes will be lost.')) {
+                setActiveTab(newTabId);
+            }
+        } else {
+            setActiveTab(newTabId);
+        }
+    };
+
     useEffect(() => {
         // Reset config to avoid showing stale data while loading
         setConfig({
             enabled: false,
             config: { mappings: [], brokers: [], publications: [] }
         });
+        setInitialConfig(null); // Reset initial config
         fetchConfig(activeTab);
         loadTags();
         loadCertificates(); // Load certificates for MQTT TLS
@@ -84,10 +120,14 @@ export default function Servers() {
 
     const loadTags = async () => {
         try {
-            const tagsRes = await getTags();
+            const [tagsRes, devicesRes] = await Promise.all([getTags(), getDevices()]);
             setAvailableTags(tagsRes.data);
+
+            const map = {};
+            devicesRes.data.forEach(d => map[d.id] = d.name);
+            setDevicesMap(map);
         } catch (error) {
-            console.error("Failed to load tags", error);
+            console.error("Failed to load tags or devices", error);
         }
     };
 
@@ -100,14 +140,18 @@ export default function Servers() {
             if (!data.config.mappings) data.config.mappings = [];
             if (!data.config.brokers) data.config.brokers = [];
             if (!data.config.publications) data.config.publications = [];
+
             setConfig(data);
+            setInitialConfig(JSON.parse(JSON.stringify(data))); // Deep copy for initial state
         } catch (error) {
             console.error('Error fetching server config:', error);
             // Ensure config is reset on error
-            setConfig({
+            const emptyConfig = {
                 enabled: false,
                 config: { mappings: [], brokers: [], publications: [] }
-            });
+            };
+            setConfig(emptyConfig);
+            setInitialConfig(emptyConfig);
         } finally {
             setLoading(false);
         }
@@ -117,6 +161,7 @@ export default function Servers() {
         setSaving(true);
         try {
             await axios.put(`${API_URL}/servers/${activeTab}`, config);
+            setInitialConfig(JSON.parse(JSON.stringify(config))); // Update initial config to match saved
             alert('Configuration saved successfully!');
             setExpandedItems({}); // Collapse all items after save
             // setExpandedSections({}); // Removed section auto-collapse as per user request
@@ -179,13 +224,16 @@ export default function Servers() {
             const newMappings = [...(config.config.mappings || [])];
 
             selectedTagObjects.forEach(tag => {
-                if (newMappings.find(m => m.tag_id === tag.tag_id)) return;
+                // Allow duplicates - removed check for existing tag_id
 
                 let mapping = { tag_id: tag.tag_id, name: tag.name, data_type: tag.data_type || 'INT16' };
 
                 if (activeTab === 'MODBUS_SERVER') {
                     let regType = 'HR';
                     if (tag.data_type === 'BOOL') regType = 'CO';
+
+                    // Default to next available address to avoid immediate conflict, 
+                    // but user can change it later to cause conflict if they want (and we will flag it)
                     const address = getNextAddress(newMappings, regType, getDataSize(tag.data_type));
 
                     mapping = { ...mapping, register_type: regType, address, unit_id: 1 };
@@ -243,22 +291,37 @@ export default function Servers() {
         const mappings = [...(config.config.mappings || [])];
 
         if (activeTab === 'MODBUS_SERVER') {
-            const grouped = { 'HR': [], 'IR': [], 'CO': [], 'DI': [] };
+            // Group by Slave ID AND Register Type
+            const grouped = {};
             mappings.forEach(m => {
+                const slaveId = m.slave_id !== undefined ? m.slave_id : (config.config.slave_id || 1);
                 const type = m.register_type || 'HR';
-                if (grouped[type]) grouped[type].push(m);
-                else grouped['HR'].push(m);
+                const key = `${slaveId}_${type}`;
+
+                if (!grouped[key]) grouped[key] = [];
+                grouped[key].push(m);
             });
 
             const newMappings = [];
-            Object.keys(grouped).forEach(type => {
+            // Re-assign addresses sequentially for each group
+            Object.keys(grouped).forEach(key => {
                 let currentAddr = 1;
-                grouped[type].forEach(m => {
+                grouped[key].forEach(m => {
                     m.address = currentAddr;
                     currentAddr += getDataSize(m.data_type);
                     newMappings.push(m);
                 });
             });
+
+            // Sort to keep them somewhat organized (optional, but good for UX)
+            newMappings.sort((a, b) => {
+                const slaveA = a.slave_id || 1;
+                const slaveB = b.slave_id || 1;
+                if (slaveA !== slaveB) return slaveA - slaveB;
+                if (a.register_type !== b.register_type) return a.register_type.localeCompare(b.register_type);
+                return a.address - b.address;
+            });
+
             handleConfigChange('mappings', newMappings);
         } else if (activeTab === 'IEC104_SERVER') {
             let currentIOA = 1;
@@ -270,9 +333,47 @@ export default function Servers() {
         }
     };
 
+    // --- Selection Logic ---
+    const [selectedIndices, setSelectedIndices] = useState(new Set());
+
+    const toggleSelect = (idx) => {
+        const newSelected = new Set(selectedIndices);
+        if (newSelected.has(idx)) newSelected.delete(idx);
+        else newSelected.add(idx);
+        setSelectedIndices(newSelected);
+    };
+
+    const toggleSelectAll = () => {
+        const mappings = config.config.mappings || [];
+        if (selectedIndices.size === mappings.length && mappings.length > 0) {
+            setSelectedIndices(new Set());
+        } else {
+            const all = new Set(mappings.map((_, i) => i));
+            setSelectedIndices(all);
+        }
+    };
+
+    const deleteSelected = () => {
+        if (window.confirm(`Are you sure you want to delete ${selectedIndices.size} items?`)) {
+            if (activeTab === 'MQTT_PUBLISHER') {
+                // For MQTT, we are likely deleting publications
+                // Note: If we wanted to support broker deletion too, we'd need a different context or separate selection state.
+                // Assuming selection is for the main list (Publications) as it's the most common "many items" list.
+                // However, MQTT render has two lists. Let's assume we are targeting Publications for now as that's the "mapping" equivalent.
+                const newPubs = (config.config.publications || []).filter((_, i) => !selectedIndices.has(i));
+                handleConfigChange('publications', newPubs);
+            } else {
+                const newMappings = (config.config.mappings || []).filter((_, i) => !selectedIndices.has(i));
+                handleConfigChange('mappings', newMappings);
+            }
+            setSelectedIndices(new Set());
+        }
+    };
+
     // --- Validation Logic ---
-    const validationErrors = useMemo(() => {
+    const validationResult = useMemo(() => {
         const errors = [];
+        const conflictIndices = new Set();
         const mappings = config.config.mappings || [];
 
         // Helper to get source tag type
@@ -282,55 +383,98 @@ export default function Servers() {
         };
 
         if (activeTab === 'MODBUS_SERVER') {
-            const used = {};
-            mappings.forEach((m) => {
+            // Check for Address Overlaps
+            // Key: slave_id:register_type:address
+            const occupied = {}; // Map key -> { index, tag_id }
+
+            mappings.forEach((m, idx) => {
+                const slaveId = m.slave_id !== undefined ? m.slave_id : (config.config.slave_id || 1);
+                const regType = m.register_type || 'HR';
                 const start = parseInt(m.address);
                 const size = getDataSize(m.data_type);
                 const end = start + size;
+
                 for (let i = start; i < end; i++) {
-                    const key = `${m.register_type}_${i}`;
-                    if (used[key]) errors.push(`Overlap: ${m.tag_id} at ${m.register_type} ${i}`);
-                    else used[key] = m.tag_id;
+                    const key = `${slaveId}:${regType}:${i}`;
+                    if (occupied[key]) {
+                        // Conflict found!
+                        const conflict = occupied[key];
+                        // Avoid duplicate error messages for the same pair overlap
+                        // We can check if we already reported this pair at this location, but simple push is fine for now
+                        // We'll filter duplicates in display if needed, or just show all
+                        errors.push({
+                            type: 'OVERLAP',
+                            tag1: m.tag_id,
+                            tag2: conflict.tag_id,
+                            location: `Slave ${slaveId} ${regType} ${i}`,
+                            index1: idx,
+                            index2: conflict.index
+                        });
+                        conflictIndices.add(idx);
+                        conflictIndices.add(conflict.index);
+                    } else {
+                        occupied[key] = { index: idx, tag_id: m.tag_id };
+                    }
                 }
 
                 // Type Validation
                 const sourceType = getSourceType(m.tag_id);
                 if (sourceType) {
-                    // String Conflict
                     if (sourceType === 'STRING' && m.data_type !== 'STRING') {
-                        errors.push(`Type Conflict: Tag '${m.tag_id}' is STRING but mapped as ${m.data_type}. IP/String tags cannot be mapped to numeric registers.`);
+                        errors.push({
+                            type: 'TYPE_MISMATCH',
+                            tag: m.tag_id,
+                            expected: 'STRING',
+                            actual: m.data_type,
+                            message: `Type Conflict: Tag '${m.tag_id}' is STRING but mapped as ${m.data_type}.`
+                        });
+                        conflictIndices.add(idx);
                     }
-
-                    // Float to Int Warning (Optional, maybe just strict error for String)
-                    if ((sourceType === 'FLOAT32' || sourceType === 'FLOAT64') && !m.data_type.includes('FLOAT')) {
-                        // errors.push(`Precision Loss: Tag '${m.tag_id}' is ${sourceType} but mapped as ${m.data_type}.`);
-                    }
-
-                    // Int to Float is usually fine
                 }
             });
         } else if (activeTab === 'IEC104_SERVER') {
             const used = {};
-            mappings.forEach(m => {
-                if (used[m.ioa]) errors.push(`Duplicate IOA: ${m.ioa}`);
-                else used[m.ioa] = true;
+            mappings.forEach((m, idx) => {
+                const base = parseInt(m.base_value || 0);
+                const offset = parseInt(m.ioa || 0);
+                const ioa = base + offset;
+
+                if (used[ioa]) {
+                    errors.push({
+                        type: 'DUPLICATE_IOA',
+                        ioa: ioa,
+                        tag1: m.tag_id,
+                        tag2: used[ioa].tag_id,
+                        message: `Duplicate IOA: ${ioa} (Tags: ${m.tag_id} & ${used[ioa].tag_id})`
+                    });
+                    conflictIndices.add(idx);
+                    conflictIndices.add(used[ioa].index);
+                } else {
+                    used[ioa] = { index: idx, tag_id: m.tag_id };
+                }
             });
         }
 
-        return errors;
-    }, [config.config.mappings, activeTab, availableTags]);
+        return { errors, conflictIndices };
+    }, [config.config.mappings, activeTab, availableTags, config.config.slave_id]);
+
+    const validationErrors = validationResult.errors;
+    const conflictIndices = validationResult.conflictIndices;
 
     // --- CSV Import/Export Logic ---
 
     const exportToCSV = () => {
         let csvContent = "data:text/csv;charset=utf-8,";
-        let filename = `${activeTab}_config.csv`;
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        let filename = `${activeTab}_config_${timestamp}.csv`;
 
         if (activeTab === 'MODBUS_SERVER') {
-            csvContent += "tag_id,slave_id,register_type,address,data_type\n";
+            csvContent += "tag_id,device_name,tag_name,slave_id,register_type,address,data_type\n";
             (config.config.mappings || []).forEach(m => {
-                const slaveId = m.slave_id !== undefined ? m.slave_id : (config.config.slave_id || 1);
-                csvContent += `${m.tag_id},${slaveId},${m.register_type},${m.address},${m.data_type}\n`;
+                const tag = availableTags.find(t => t.tag_id === m.tag_id);
+                const tagName = tag ? tag.name : '';
+                const deviceName = tag && tag.device_id ? (devicesMap[tag.device_id] || '') : '';
+                csvContent += `${m.tag_id},${deviceName},${tagName},${m.slave_id || 1},${m.register_type},${m.address},${m.data_type}\n`;
             });
         } else if (activeTab === 'OPC_UA_SERVER') {
             csvContent += "tag_id,node_name,data_type\n";
@@ -338,9 +482,9 @@ export default function Servers() {
                 csvContent += `${m.tag_id},${m.node_name},${m.data_type}\n`;
             });
         } else if (activeTab === 'IEC104_SERVER') {
-            csvContent += "tag_id,ioa,type_id\n";
+            csvContent += "tag_id,base_value,ioa,type_id,soe,cot\n";
             (config.config.mappings || []).forEach(m => {
-                csvContent += `${m.tag_id},${m.ioa},${m.type_id}\n`;
+                csvContent += `${m.tag_id},${m.base_value || 0},${m.ioa},${m.type_id},${m.soe || false},${m.cot || 'SPONTANEOUS'}\n`;
             });
         } else if (activeTab === 'MQTT_PUBLISHER') {
             csvContent += "broker_id,topic,interval,payload_template,tags\n";
@@ -369,15 +513,31 @@ export default function Servers() {
         reader.onload = (e) => {
             const text = e.target.result;
             const lines = text.split('\n');
-            const headers = lines[0].split(',').map(h => h.trim());
+            if (lines.length < 2) return;
+
+            // Parse headers
+            const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+            const colIdx = {};
+            headers.forEach((h, i) => colIdx[h] = i);
 
             const newMappings = [];
             const newPublications = [];
 
+            // Helper to get value by column name(s)
+            const getVal = (row, ...colNames) => {
+                for (const name of colNames) {
+                    const idx = colIdx[name];
+                    if (idx !== undefined && row[idx] !== undefined) {
+                        return row[idx].trim();
+                    }
+                }
+                return null;
+            };
+
             for (let i = 1; i < lines.length; i++) {
                 if (!lines[i].trim()) continue;
 
-                // Simple CSV parser handling quotes for MQTT payload
+                // CSV Row Parser
                 let row = [];
                 let inQuotes = false;
                 let currentValue = '';
@@ -394,51 +554,98 @@ export default function Servers() {
                 row.push(currentValue);
 
                 if (activeTab === 'MODBUS_SERVER') {
-                    if (row.length >= 5) {
+                    // Smart Resolution for Modbus
+                    let tagId = getVal(row, 'tag_id');
+                    const deviceName = getVal(row, 'device_name');
+                    const tagName = getVal(row, 'tag_name', 'name'); // Support 'tag_name' or 'name'
+
+                    let resolvedTagId = null;
+
+                    // 1. Try explicit Tag ID
+                    if (tagId && availableTags.some(t => t.tag_id === tagId)) {
+                        resolvedTagId = tagId;
+                    }
+
+                    // 2. Try Name Resolution if ID failed or missing
+                    if (!resolvedTagId && tagName) {
+                        const candidates = availableTags.filter(t => t.name === tagName);
+                        if (candidates.length > 0) {
+                            if (deviceName) {
+                                // Find device ID for this name
+                                const deviceId = Object.keys(devicesMap).find(id => devicesMap[id] === deviceName);
+                                if (deviceId) {
+                                    const match = candidates.find(t => t.device_id === deviceId);
+                                    if (match) resolvedTagId = match.tag_id;
+                                }
+                            } else {
+                                // No device name provided (e.g. Calculation tag, or user omitted it)
+                                // Pick the first match. 
+                                resolvedTagId = candidates[0].tag_id;
+                            }
+                        }
+                    }
+
+                    if (resolvedTagId) {
                         newMappings.push({
-                            tag_id: row[0],
-                            slave_id: parseInt(row[1]),
-                            register_type: row[2],
-                            address: parseInt(row[3]),
-                            data_type: row[4]
+                            tag_id: resolvedTagId,
+                            slave_id: parseInt(getVal(row, 'slave_id') || (config.config.slave_id || 1)),
+                            register_type: getVal(row, 'register_type') || 'HR',
+                            address: parseInt(getVal(row, 'address') || 1),
+                            data_type: getVal(row, 'data_type') || 'INT16'
                         });
                     }
                 } else if (activeTab === 'OPC_UA_SERVER') {
-                    if (row.length >= 3) {
+                    const tagId = getVal(row, 'tag_id') || row[0];
+                    const nodeName = getVal(row, 'node_name') || row[1];
+                    const dataType = getVal(row, 'data_type') || row[2];
+
+                    if (tagId) {
                         newMappings.push({
-                            tag_id: row[0],
-                            node_name: row[1],
-                            data_type: row[2]
+                            tag_id: tagId,
+                            node_name: nodeName,
+                            data_type: dataType || 'INT16'
                         });
                     }
                 } else if (activeTab === 'IEC104_SERVER') {
-                    if (row.length >= 3) {
+                    const tagId = getVal(row, 'tag_id') || row[0];
+                    if (tagId) {
                         newMappings.push({
-                            tag_id: row[0],
-                            ioa: parseInt(row[1]),
-                            type_id: row[2]
+                            tag_id: tagId,
+                            base_value: parseInt(getVal(row, 'base_value') || row[1] || 0),
+                            ioa: parseInt(getVal(row, 'ioa') || row[2] || 0),
+                            type_id: getVal(row, 'type_id') || row[3] || 'M_ME_NC_1',
+                            soe: (getVal(row, 'soe') || row[4]) === 'true',
+                            cot: getVal(row, 'cot') || row[5] || 'SPONTANEOUS'
                         });
                     }
                 } else if (activeTab === 'MQTT_PUBLISHER') {
-                    if (row.length >= 5) {
+                    const brokerId = getVal(row, 'broker_id') || row[0];
+                    if (brokerId) {
+                        const payload = (getVal(row, 'payload_template') || row[3] || '{}').replace(/""/g, '"');
+                        const tagsStr = getVal(row, 'tags') || row[4] || '';
                         newPublications.push({
-                            id: Date.now().toString() + i, // Generate unique ID
-                            broker_id: row[0],
-                            topic: row[1],
-                            interval: parseInt(row[2]),
-                            payload_template: row[3].replace(/""/g, '"'), // Unescape quotes
-                            tags: row[4] ? row[4].split('|') : []
+                            id: Date.now().toString() + i,
+                            broker_id: brokerId,
+                            topic: getVal(row, 'topic') || row[1] || '',
+                            interval: parseInt(getVal(row, 'interval') || row[2] || 10),
+                            payload_template: payload,
+                            tags: tagsStr ? tagsStr.split('|') : []
                         });
                     }
                 }
             }
 
-            if (activeTab === 'MQTT_PUBLISHER') {
-                handleConfigChange('publications', [...config.config.publications, ...newPublications]);
-            } else {
+            if (newMappings.length > 0) {
                 handleConfigChange('mappings', [...(config.config.mappings || []), ...newMappings]);
+                alert(`Imported ${newMappings.length} mappings successfully.`);
             }
-            alert('Import successful! Please save changes.');
+            if (newPublications.length > 0) {
+                handleConfigChange('publications', [...(config.config.publications || []), ...newPublications]);
+                alert(`Imported ${newPublications.length} publications successfully.`);
+            }
+            if (newMappings.length === 0 && newPublications.length === 0) {
+                alert('No valid entries found to import.');
+            }
         };
         reader.readAsText(file);
         event.target.value = ''; // Reset input
@@ -446,9 +653,22 @@ export default function Servers() {
 
     // --- Renderers ---
 
+    const TagBadge = ({ tagId }) => {
+        const tag = availableTags.find(t => t.tag_id === tagId);
+        if (tag && tag.type === 'IO' && tag.device_id) {
+            return (
+                <span className="inline-flex items-baseline gap-1 font-mono text-xs bg-surfaceHighlight/30 px-1.5 py-0.5 rounded border border-surfaceHighlight/50">
+                    <span className="text-primary font-bold">{devicesMap[tag.device_id] || 'Unknown'}:</span>
+                    <span className="text-white">{tag.name}</span>
+                </span>
+            );
+        }
+        return <span className="font-mono text-xs bg-surfaceHighlight/30 px-1.5 py-0.5 rounded border border-surfaceHighlight/50 text-white">{tag?.name || tagId}</span>;
+    };
+
     const renderModbusContent = () => (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                 <div className="group">
                     <label className="block text-sm font-medium text-text-secondary mb-2">Port</label>
                     <input
@@ -467,14 +687,38 @@ export default function Servers() {
                         className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary"
                     />
                 </div>
+                <div className="group flex items-end pb-3">
+                    <label className="relative inline-flex items-center cursor-pointer group">
+                        <input
+                            type="checkbox"
+                            className="sr-only peer"
+                            checked={config.config.reset_on_change || false}
+                            onChange={(e) => handleConfigChange('reset_on_change', e.target.checked)}
+                        />
+                        <div className="w-11 h-6 bg-surfaceHighlight/30 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary shadow-inner"></div>
+                        <span className="ml-3 text-sm font-medium text-text-secondary group-hover:text-white transition-colors">
+                            Reset Memory on Change
+                        </span>
+                    </label>
+                </div>
             </div>
 
             {/* Mappings Table */}
             <div className="bg-surfaceHighlight/10 rounded-2xl border border-surfaceHighlight/30 overflow-hidden">
                 <div className="p-6 border-b border-surfaceHighlight/30 flex justify-between items-center">
-                    <h4 className="text-lg font-bold text-white flex items-center gap-2">
-                        <Activity size={20} className="text-primary" /> Tag Mappings
-                    </h4>
+                    <div className="flex items-center gap-4">
+                        <h4 className="text-lg font-bold text-white flex items-center gap-2">
+                            <Activity size={20} className="text-primary" /> Tag Mappings
+                        </h4>
+                        {selectedIndices.size > 0 && (
+                            <button
+                                onClick={deleteSelected}
+                                className="flex items-center gap-2 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm font-medium transition-colors border border-red-500/30"
+                            >
+                                <Trash2 size={14} /> Delete {selectedIndices.size} Selected
+                            </button>
+                        )}
+                    </div>
                     <div className="flex gap-2">
                         <button onClick={exportToCSV} className="flex items-center gap-2 px-3 py-2 bg-surfaceHighlight/30 hover:bg-surfaceHighlight/50 text-white rounded-lg transition-colors text-sm">
                             <Copy size={14} /> Export CSV
@@ -493,13 +737,29 @@ export default function Servers() {
                 </div>
 
                 {validationErrors.length > 0 && (
-                    <div className="p-4 bg-warning/10 border-b border-warning/20 flex items-center justify-between">
-                        <div className="text-warning text-sm flex items-center gap-2">
-                            <AlertTriangle size={14} /> {validationErrors.length} issues found
+                    <div className="p-4 bg-warning/10 border-b border-warning/20 flex flex-col gap-2">
+                        <div className="flex items-center justify-between">
+                            <div className="text-warning text-sm flex items-center gap-2 font-semibold">
+                                <AlertTriangle size={16} /> {validationErrors.length} issues found
+                            </div>
+                            <button onClick={autoAdjustMappings} className="flex items-center gap-2 px-3 py-1.5 bg-warning/20 hover:bg-warning/30 text-warning rounded-lg text-sm font-medium transition-colors border border-warning/30">
+                                <Wand2 size={14} /> Auto Fix All
+                            </button>
                         </div>
-                        <button onClick={autoAdjustMappings} className="flex items-center gap-2 px-3 py-1.5 bg-warning/20 hover:bg-warning/30 text-warning rounded-lg text-sm font-medium transition-colors border border-warning/30">
-                            <Wand2 size={14} /> Auto Adjust
-                        </button>
+                        <div className="max-h-32 overflow-y-auto text-xs text-warning/80 space-y-1 pl-6">
+                            {validationErrors.map((err, i) => (
+                                <div key={i} className="flex items-center gap-1">
+                                    <span>•</span>
+                                    {err.type === 'OVERLAP' ? (
+                                        <span>
+                                            Address Conflict: <TagBadge tagId={err.tag1} /> overlaps with <TagBadge tagId={err.tag2} /> at {err.location}
+                                        </span>
+                                    ) : (
+                                        <span>{err.message}</span>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
 
@@ -507,6 +767,14 @@ export default function Servers() {
                     <table className="w-full text-left text-sm">
                         <thead className="bg-surfaceHighlight/20 text-text-secondary font-medium">
                             <tr>
+                                <th className="px-6 py-3 w-10">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedIndices.size > 0 && selectedIndices.size === (config.config.mappings || []).length}
+                                        onChange={toggleSelectAll}
+                                        className="w-4 h-4 rounded border-surfaceHighlight/50 bg-surfaceHighlight/20 text-primary focus:ring-primary focus:ring-offset-0"
+                                    />
+                                </th>
                                 <th className="px-6 py-3">Tag ID</th>
                                 <th className="px-6 py-3">Slave ID</th>
                                 <th className="px-6 py-3">Register Type</th>
@@ -516,62 +784,103 @@ export default function Servers() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-surfaceHighlight/10">
-                            {(config.config.mappings || []).map((mapping, idx) => (
-                                <tr key={idx} className="hover:bg-surfaceHighlight/5 transition-colors">
-                                    <td className="px-6 py-3 text-white font-mono">{mapping.tag_id}</td>
-                                    <td className="px-6 py-3">
-                                        <input
-                                            type="number"
-                                            value={mapping.slave_id !== undefined ? mapping.slave_id : (config.config.slave_id || 1)}
-                                            onChange={(e) => updateMapping(idx, 'slave_id', parseInt(e.target.value))}
-                                            className="w-16 bg-transparent border border-surfaceHighlight/30 rounded px-2 py-1 text-text-secondary focus:text-white focus:border-primary outline-none"
-                                            min="1"
-                                            max="247"
-                                        />
-                                    </td>
-                                    <td className="px-6 py-3">
-                                        <select
-                                            value={mapping.register_type}
-                                            onChange={(e) => updateMapping(idx, 'register_type', e.target.value)}
-                                            className="bg-transparent border border-surfaceHighlight/30 rounded px-2 py-1 text-text-secondary focus:text-white focus:border-primary outline-none"
-                                        >
-                                            <option value="HR">Holding Register</option>
-                                            <option value="IR">Input Register</option>
-                                            <option value="CO">Coil</option>
-                                            <option value="DI">Discrete Input</option>
-                                        </select>
-                                    </td>
-                                    <td className="px-6 py-3">
-                                        <input
-                                            type="number"
-                                            value={mapping.address}
-                                            onChange={(e) => updateMapping(idx, 'address', parseInt(e.target.value))}
-                                            className="w-20 bg-transparent border border-surfaceHighlight/30 rounded px-2 py-1 text-text-secondary focus:text-white focus:border-primary outline-none"
-                                        />
-                                    </td>
-                                    <td className="px-6 py-3">
-                                        <select
-                                            value={mapping.data_type}
-                                            onChange={(e) => updateMapping(idx, 'data_type', e.target.value)}
-                                            className="bg-transparent border border-surfaceHighlight/30 rounded px-2 py-1 text-text-secondary focus:text-white focus:border-primary outline-none"
-                                        >
-                                            <option value="INT16">INT16</option>
-                                            <option value="UINT16">UINT16</option>
-                                            <option value="INT32">INT32</option>
-                                            <option value="UINT32">UINT32</option>
-                                            <option value="FLOAT32">FLOAT32</option>
-                                            <option value="FLOAT64">FLOAT64</option>
-                                            <option value="BOOLEAN">BOOLEAN</option>
-                                            <option value="STRING">STRING</option>
-                                        </select>
-                                    </td>
-                                    <td className="px-6 py-3">
-                                        <button onClick={() => removeMapping(idx)} className="text-text-muted hover:text-warning transition-colors">
-                                            <Trash2 size={16} />
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
+                            {(config.config.mappings || []).map((mapping, idx) => {
+                                const hasError = conflictIndices.has(idx);
+                                return (
+                                    <tr key={idx} className={clsx(
+                                        "transition-colors",
+                                        hasError ? "bg-red-500/10 hover:bg-red-500/20" : "hover:bg-surfaceHighlight/5",
+                                        selectedIndices.has(idx) && "bg-primary/10"
+                                    )}>
+                                        <td className="px-6 py-3">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedIndices.has(idx)}
+                                                onChange={() => toggleSelect(idx)}
+                                                className="w-4 h-4 rounded border-surfaceHighlight/50 bg-surfaceHighlight/20 text-primary focus:ring-primary focus:ring-offset-0"
+                                            />
+                                        </td>
+                                        <td className="px-6 py-3">
+                                            <div className="font-medium text-white">
+                                                {(() => {
+                                                    const tag = availableTags.find(t => t.tag_id === mapping.tag_id);
+                                                    if (tag && tag.type === 'IO' && tag.device_id) {
+                                                        return (
+                                                            <span className="flex items-baseline gap-1">
+                                                                <span className="text-primary font-bold">{devicesMap[tag.device_id] || 'Unknown'}:</span>
+                                                                <span>{tag.name}</span>
+                                                            </span>
+                                                        );
+                                                    }
+                                                    return tag?.name || mapping.tag_id;
+                                                })()}
+                                            </div>
+                                            <div className="text-xs text-text-muted font-mono"><small>{mapping.tag_id}</small></div>
+                                            {hasError && <div className="text-[10px] text-red-400 font-semibold mt-1">Conflict Detected</div>}
+                                        </td>
+                                        <td className="px-6 py-3">
+                                            <input
+                                                type="number"
+                                                value={mapping.slave_id !== undefined ? mapping.slave_id : (config.config.slave_id || 1)}
+                                                onChange={(e) => updateMapping(idx, 'slave_id', parseInt(e.target.value))}
+                                                className={clsx(
+                                                    "w-16 bg-transparent border rounded px-2 py-1 text-text-secondary focus:text-white outline-none",
+                                                    hasError ? "border-red-500/50 focus:border-red-500" : "border-surfaceHighlight/30 focus:border-primary"
+                                                )}
+                                                min="1"
+                                                max="247"
+                                            />
+                                        </td>
+                                        <td className="px-6 py-3">
+                                            <select
+                                                value={mapping.register_type}
+                                                onChange={(e) => updateMapping(idx, 'register_type', e.target.value)}
+                                                className={clsx(
+                                                    "bg-transparent border rounded px-2 py-1 text-text-secondary focus:text-white outline-none",
+                                                    hasError ? "border-red-500/50 focus:border-red-500" : "border-surfaceHighlight/30 focus:border-primary"
+                                                )}
+                                            >
+                                                <option value="HR">Holding Register</option>
+                                                <option value="IR">Input Register</option>
+                                                <option value="CO">Coil</option>
+                                                <option value="DI">Discrete Input</option>
+                                            </select>
+                                        </td>
+                                        <td className="px-6 py-3">
+                                            <input
+                                                type="number"
+                                                value={mapping.address}
+                                                onChange={(e) => updateMapping(idx, 'address', parseInt(e.target.value))}
+                                                className={clsx(
+                                                    "w-20 bg-transparent border rounded px-2 py-1 text-text-secondary focus:text-white outline-none",
+                                                    hasError ? "border-red-500/50 focus:border-red-500" : "border-surfaceHighlight/30 focus:border-primary"
+                                                )}
+                                            />
+                                        </td>
+                                        <td className="px-6 py-3">
+                                            <select
+                                                value={mapping.data_type}
+                                                onChange={(e) => updateMapping(idx, 'data_type', e.target.value)}
+                                                className="bg-transparent border border-surfaceHighlight/30 rounded px-2 py-1 text-text-secondary focus:text-white focus:border-primary outline-none"
+                                            >
+                                                <option value="INT16">INT16</option>
+                                                <option value="UINT16">UINT16</option>
+                                                <option value="INT32">INT32</option>
+                                                <option value="UINT32">UINT32</option>
+                                                <option value="FLOAT32">FLOAT32</option>
+                                                <option value="FLOAT64">FLOAT64</option>
+                                                <option value="BOOLEAN">BOOLEAN</option>
+                                                <option value="STRING">STRING</option>
+                                            </select>
+                                        </td>
+                                        <td className="px-6 py-3">
+                                            <button onClick={() => removeMapping(idx)} className="text-text-muted hover:text-warning transition-colors">
+                                                <Trash2 size={16} />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>
@@ -603,9 +912,19 @@ export default function Servers() {
 
             <div className="bg-surfaceHighlight/10 rounded-2xl border border-surfaceHighlight/30 overflow-hidden">
                 <div className="p-6 border-b border-surfaceHighlight/30 flex justify-between items-center">
-                    <h4 className="text-lg font-bold text-white flex items-center gap-2">
-                        <Activity size={20} className="text-primary" /> Node Mappings
-                    </h4>
+                    <div className="flex items-center gap-4">
+                        <h4 className="text-lg font-bold text-white flex items-center gap-2">
+                            <Activity size={20} className="text-primary" /> Node Mappings
+                        </h4>
+                        {selectedIndices.size > 0 && (
+                            <button
+                                onClick={deleteSelected}
+                                className="flex items-center gap-2 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm font-medium transition-colors border border-red-500/30"
+                            >
+                                <Trash2 size={14} /> Delete {selectedIndices.size} Selected
+                            </button>
+                        )}
+                    </div>
                     <div className="flex gap-2">
                         <button onClick={exportToCSV} className="flex items-center gap-2 px-3 py-2 bg-surfaceHighlight/30 hover:bg-surfaceHighlight/50 text-white rounded-lg transition-colors text-sm">
                             <Copy size={14} /> Export CSV
@@ -627,6 +946,14 @@ export default function Servers() {
                     <table className="w-full text-left text-sm">
                         <thead className="bg-surfaceHighlight/20 text-text-secondary font-medium">
                             <tr>
+                                <th className="px-6 py-3 w-10">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedIndices.size > 0 && selectedIndices.size === (config.config.mappings || []).length}
+                                        onChange={toggleSelectAll}
+                                        className="w-4 h-4 rounded border-surfaceHighlight/50 bg-surfaceHighlight/20 text-primary focus:ring-primary focus:ring-offset-0"
+                                    />
+                                </th>
                                 <th className="px-6 py-3">Tag ID</th>
                                 <th className="px-6 py-3">Node Name</th>
                                 <th className="px-6 py-3">Node ID</th>
@@ -636,8 +963,35 @@ export default function Servers() {
                         </thead>
                         <tbody className="divide-y divide-surfaceHighlight/10">
                             {(config.config.mappings || []).map((mapping, idx) => (
-                                <tr key={idx} className="hover:bg-surfaceHighlight/5 transition-colors">
-                                    <td className="px-6 py-3 text-white font-mono">{mapping.tag_id}</td>
+                                <tr key={idx} className={clsx(
+                                    "hover:bg-surfaceHighlight/5 transition-colors",
+                                    selectedIndices.has(idx) && "bg-primary/10"
+                                )}>
+                                    <td className="px-6 py-3">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedIndices.has(idx)}
+                                            onChange={() => toggleSelect(idx)}
+                                            className="w-4 h-4 rounded border-surfaceHighlight/50 bg-surfaceHighlight/20 text-primary focus:ring-primary focus:ring-offset-0"
+                                        />
+                                    </td>
+                                    <td className="px-6 py-3">
+                                        <div className="font-medium text-white">
+                                            {(() => {
+                                                const tag = availableTags.find(t => t.tag_id === mapping.tag_id);
+                                                if (tag && tag.type === 'IO' && tag.device_id) {
+                                                    return (
+                                                        <span className="flex items-baseline gap-1">
+                                                            <span className="text-primary font-bold">{devicesMap[tag.device_id] || 'Unknown'}:</span>
+                                                            <span>{tag.name}</span>
+                                                        </span>
+                                                    );
+                                                }
+                                                return tag?.name || mapping.tag_id;
+                                            })()}
+                                        </div>
+                                        <div className="text-xs text-text-muted font-mono"><small>{mapping.tag_id}</small></div>
+                                    </td>
                                     <td className="px-6 py-3">
                                         <input
                                             value={mapping.node_name}
@@ -703,9 +1057,19 @@ export default function Servers() {
 
             <div className="bg-surfaceHighlight/10 rounded-2xl border border-surfaceHighlight/30 overflow-hidden">
                 <div className="p-6 border-b border-surfaceHighlight/30 flex justify-between items-center">
-                    <h4 className="text-lg font-bold text-white flex items-center gap-2">
-                        <Activity size={20} className="text-primary" /> IOA Mappings
-                    </h4>
+                    <div className="flex items-center gap-4">
+                        <h4 className="text-lg font-bold text-white flex items-center gap-2">
+                            <Activity size={20} className="text-primary" /> IOA Mappings
+                        </h4>
+                        {selectedIndices.size > 0 && (
+                            <button
+                                onClick={deleteSelected}
+                                className="flex items-center gap-2 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm font-medium transition-colors border border-red-500/30"
+                            >
+                                <Trash2 size={14} /> Delete {selectedIndices.size} Selected
+                            </button>
+                        )}
+                    </div>
                     <div className="flex gap-2">
                         <button onClick={exportToCSV} className="flex items-center gap-2 px-3 py-2 bg-surfaceHighlight/30 hover:bg-surfaceHighlight/50 text-white rounded-lg transition-colors text-sm">
                             <Copy size={14} /> Export CSV
@@ -732,6 +1096,14 @@ export default function Servers() {
                     <table className="w-full text-left text-sm">
                         <thead className="bg-surfaceHighlight/20 text-text-secondary font-medium">
                             <tr>
+                                <th className="px-6 py-3 w-10">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedIndices.size > 0 && selectedIndices.size === (config.config.mappings || []).length}
+                                        onChange={toggleSelectAll}
+                                        className="w-4 h-4 rounded border-surfaceHighlight/50 bg-surfaceHighlight/20 text-primary focus:ring-primary focus:ring-offset-0"
+                                    />
+                                </th>
                                 <th className="px-6 py-3">Tag ID</th>
                                 <th className="px-6 py-3">Base Value</th>
                                 <th className="px-6 py-3">IOA Offset</th>
@@ -749,8 +1121,35 @@ export default function Servers() {
                                 const computedIOA = baseValue + ioaOffset;
 
                                 return (
-                                    <tr key={idx} className="hover:bg-surfaceHighlight/5 transition-colors">
-                                        <td className="px-6 py-3 text-white font-mono">{mapping.tag_id}</td>
+                                    <tr key={idx} className={clsx(
+                                        "hover:bg-surfaceHighlight/5 transition-colors",
+                                        selectedIndices.has(idx) && "bg-primary/10"
+                                    )}>
+                                        <td className="px-6 py-3">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedIndices.has(idx)}
+                                                onChange={() => toggleSelect(idx)}
+                                                className="w-4 h-4 rounded border-surfaceHighlight/50 bg-surfaceHighlight/20 text-primary focus:ring-primary focus:ring-offset-0"
+                                            />
+                                        </td>
+                                        <td className="px-6 py-3">
+                                            <div className="font-medium text-white">
+                                                {(() => {
+                                                    const tag = availableTags.find(t => t.tag_id === mapping.tag_id);
+                                                    if (tag && tag.type === 'IO' && tag.device_id) {
+                                                        return (
+                                                            <span className="flex items-baseline gap-1">
+                                                                <span className="text-primary font-bold">{devicesMap[tag.device_id] || 'Unknown'}:</span>
+                                                                <span>{tag.name}</span>
+                                                            </span>
+                                                        );
+                                                    }
+                                                    return tag?.name || mapping.tag_id;
+                                                })()}
+                                            </div>
+                                            <div className="text-xs text-text-muted font-mono"><small>{mapping.tag_id}</small></div>
+                                        </td>
                                         <td className="px-6 py-3">
                                             <input
                                                 type="number"
@@ -988,9 +1387,19 @@ export default function Servers() {
                 {/* Publications Section */}
                 <div className="bg-surfaceHighlight/10 rounded-2xl border border-surfaceHighlight/30 overflow-hidden">
                     <div className="p-6 border-b border-surfaceHighlight/30 flex justify-between items-center">
-                        <h4 className="text-lg font-bold text-white flex items-center gap-2">
-                            <RefreshCw size={20} className="text-primary" /> Publications
-                        </h4>
+                        <div className="flex items-center gap-4">
+                            <h4 className="text-lg font-bold text-white flex items-center gap-2">
+                                <RefreshCw size={20} className="text-primary" /> Publications
+                            </h4>
+                            {selectedIndices.size > 0 && (
+                                <button
+                                    onClick={deleteSelected}
+                                    className="flex items-center gap-2 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm font-medium transition-colors border border-red-500/30"
+                                >
+                                    <Trash2 size={14} /> Delete {selectedIndices.size} Selected
+                                </button>
+                            )}
+                        </div>
                         <div className="flex gap-2">
                             <button onClick={exportToCSV} className="flex items-center gap-2 px-3 py-2 bg-surfaceHighlight/30 hover:bg-surfaceHighlight/50 text-white rounded-lg transition-colors text-sm">
                                 <Copy size={14} /> Export CSV
@@ -1004,20 +1413,52 @@ export default function Servers() {
                             </button>
                         </div>
                     </div>
+
+                    {/* Select All for Publications */}
+                    {(config.config.publications || []).length > 0 && (
+                        <div className="px-6 py-2 bg-surfaceHighlight/20 border-b border-surfaceHighlight/30 flex items-center gap-3">
+                            <input
+                                type="checkbox"
+                                checked={selectedIndices.size > 0 && selectedIndices.size === (config.config.publications || []).length}
+                                onChange={() => {
+                                    const pubs = config.config.publications || [];
+                                    if (selectedIndices.size === pubs.length) {
+                                        setSelectedIndices(new Set());
+                                    } else {
+                                        setSelectedIndices(new Set(pubs.map((_, i) => i)));
+                                    }
+                                }}
+                                className="w-4 h-4 rounded border-surfaceHighlight/50 bg-surfaceHighlight/20 text-primary focus:ring-primary focus:ring-offset-0"
+                            />
+                            <span className="text-xs text-text-secondary font-medium uppercase tracking-wider">Select All</span>
+                        </div>
+                    )}
+
                     <div className="divide-y divide-surfaceHighlight/10">
                         {(config.config.publications || []).map((pub, idx) => (
-                            <div key={pub.id} className="p-6 space-y-4">
+                            <div key={pub.id} className={clsx(
+                                "p-6 space-y-4 transition-colors",
+                                selectedIndices.has(idx) ? "bg-primary/10" : ""
+                            )}>
                                 <div className="flex justify-between items-center">
-                                    <div
-                                        className="flex items-center gap-4 flex-1 cursor-pointer"
-                                        onClick={() => toggleItem(pub.id)}
-                                    >
-                                        {expandedItems[pub.id] ? <ChevronDown size={18} className="text-text-secondary" /> : <ChevronRight size={18} className="text-text-secondary" />}
-                                        <div className="flex flex-col">
-                                            <span className="text-sm font-medium text-white">{pub.topic || 'New Publication'}</span>
-                                            <span className="text-xs text-text-muted">
-                                                {config.config.brokers.find(b => b.id === pub.broker_id)?.host || 'Unknown Broker'} • {pub.interval}s
-                                            </span>
+                                    <div className="flex items-center gap-4 flex-1">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedIndices.has(idx)}
+                                            onChange={() => toggleSelect(idx)}
+                                            className="w-4 h-4 rounded border-surfaceHighlight/50 bg-surfaceHighlight/20 text-primary focus:ring-primary focus:ring-offset-0 mr-2"
+                                        />
+                                        <div
+                                            className="flex items-center gap-4 flex-1 cursor-pointer"
+                                            onClick={() => toggleItem(pub.id)}
+                                        >
+                                            {expandedItems[pub.id] ? <ChevronDown size={18} className="text-text-secondary" /> : <ChevronRight size={18} className="text-text-secondary" />}
+                                            <div className="flex flex-col">
+                                                <span className="text-sm font-medium text-white">{pub.topic || 'New Publication'}</span>
+                                                <span className="text-xs text-text-muted">
+                                                    {config.config.brokers.find(b => b.id === pub.broker_id)?.host || 'Unknown Broker'} • {pub.interval}s
+                                                </span>
+                                            </div>
                                         </div>
                                     </div>
                                     <button onClick={() => removePublication(idx)} className="text-text-muted hover:text-warning transition-colors p-2">
@@ -1062,6 +1503,7 @@ export default function Servers() {
                                                 value={pub.payload_template}
                                                 onChange={(val) => updatePublication(idx, 'payload_template', val)}
                                                 availableTags={availableTags}
+                                                devicesMap={devicesMap}
                                             />
                                             <div className="mt-2 flex flex-wrap gap-2">
                                                 {(pub.tags || []).map(tagId => (
@@ -1092,7 +1534,42 @@ export default function Servers() {
     };
 
     const renderContent = () => {
-        if (loading) return <div className="p-12 text-center text-text-muted animate-pulse">Loading configuration...</div>;
+        if (loading) {
+            return (
+                <div className="space-y-8 animate-in fade-in duration-500">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div className="space-y-2">
+                            <Skeleton className="h-4 w-24" />
+                            <Skeleton className="h-12 w-full rounded-xl" />
+                        </div>
+                        <div className="space-y-2">
+                            <Skeleton className="h-4 w-24" />
+                            <Skeleton className="h-12 w-full rounded-xl" />
+                        </div>
+                    </div>
+                    <div className="bg-surfaceHighlight/10 rounded-2xl border border-surfaceHighlight/30 overflow-hidden p-6 space-y-4">
+                        <div className="flex justify-between items-center mb-6">
+                            <Skeleton className="h-8 w-48" />
+                            <div className="flex gap-2">
+                                <Skeleton className="h-9 w-24 rounded-lg" />
+                                <Skeleton className="h-9 w-24 rounded-lg" />
+                                <Skeleton className="h-9 w-24 rounded-lg" />
+                            </div>
+                        </div>
+                        <div className="space-y-4">
+                            {[1, 2, 3, 4, 5].map(i => (
+                                <div key={i} className="flex gap-4">
+                                    <Skeleton className="h-10 flex-1 rounded-lg" />
+                                    <Skeleton className="h-10 w-32 rounded-lg" />
+                                    <Skeleton className="h-10 w-24 rounded-lg" />
+                                    <Skeleton className="h-10 w-12 rounded-lg" />
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
         switch (activeTab) {
             case 'MODBUS_SERVER': return renderModbusContent();
             case 'OPC_UA_SERVER': return renderOpcUaContent();
@@ -1119,7 +1596,7 @@ export default function Servers() {
                         return (
                             <button
                                 key={tab.id}
-                                onClick={() => setActiveTab(tab.id)}
+                                onClick={() => handleTabChange(tab.id)}
                                 className={clsx(
                                     'flex items-center gap-3 px-8 py-5 text-sm font-medium transition-all duration-300 relative whitespace-nowrap',
                                     isActive ? 'text-white bg-surfaceHighlight/10' : 'text-text-muted hover:text-white hover:bg-surfaceHighlight/5'
@@ -1155,14 +1632,22 @@ export default function Servers() {
                                 </div>
                             )}
                         </div>
-                        <button
-                            onClick={handleSave}
-                            disabled={saving || validationErrors.length > 0}
-                            className="flex items-center gap-2 px-6 py-2.5 bg-primary text-white rounded-xl hover:bg-primary-hover transition-all shadow-lg shadow-primary/20 disabled:opacity-50 disabled:shadow-none hover:scale-105 active:scale-95"
-                        >
-                            <Save size={18} />
-                            {saving ? 'Saving...' : 'Save Changes'}
-                        </button>
+                        <div className="flex items-center gap-4">
+                            {isDirty && (
+                                <span className="text-warning text-sm font-medium animate-pulse flex items-center gap-2">
+                                    <AlertTriangle size={16} />
+                                    Unsaved Changes
+                                </span>
+                            )}
+                            <button
+                                onClick={handleSave}
+                                disabled={saving || validationErrors.length > 0}
+                                className="flex items-center gap-2 px-6 py-2.5 bg-primary text-white rounded-xl hover:bg-primary-hover transition-all shadow-lg shadow-primary/20 disabled:opacity-50 disabled:shadow-none hover:scale-105 active:scale-95"
+                            >
+                                <Save size={18} />
+                                {saving ? 'Saving...' : 'Save Changes'}
+                            </button>
+                        </div>
                     </div>
                     {renderContent()}
                 </div>

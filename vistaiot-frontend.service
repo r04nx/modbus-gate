@@ -1,0 +1,14 @@
+[Unit]
+Description=VistaIOT Frontend Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/modbus-gate/frontend
+ExecStart=/usr/bin/python3 -m http.server 3000 --directory dist
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

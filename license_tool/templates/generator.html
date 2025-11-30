@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}License Generator{% endblock %}
+
+{% block content %}
+<h1>Generate License</h1>
+<form method="post" action="/generate">
+    <div class="form-group">
+        <label for="customer_name">Customer Name</label>
+        <input type="text" id="customer_name" name="customer_name" required>
+    </div>
+    <div class="form-group">
+        <label for="customer_org">Customer Organisation</label>
+        <input type="text" id="customer_org" name="customer_org" required>
+    </div>
+    <div class="form-group">
+        <label for="device_fingerprint">Device Fingerprint</label>
+        <input type="text" id="device_fingerprint" name="device_fingerprint" required
+            placeholder="Output from get_device_id.py">
+    </div>
+    <div class="form-group">
+        <label for="valid_till">License Valid Till</label>
+        <input type="date" id="valid_till" name="valid_till" required>
+    </div>
+    <div class="form-group">
+        <label for="plan">Plan</label>
+        <select id="plan" name="plan">
+            <option value="free_trial">Free Trial</option>
+            <option value="full">Full</option>
+        </select>
+    </div>
+    <div class="form-group">
+        <label for="software_version">Software Version</label>
+        <input type="text" id="software_version" name="software_version" required>
+    </div>
+    <div class="form-group">
+        <label for="company_secret">Company Secret</label>
+        <input type="password" id="company_secret" name="company_secret" required
+            placeholder="Shared secret for encryption">
+    </div>
+    <div class="form-group">
+        <label for="private_key">Private Key (PEM)</label>
+        <textarea id="private_key" name="private_key" rows="5" required
+            placeholder="-----BEGIN PRIVATE KEY-----..."></textarea>
+    </div>
+    <button type="submit">Generate License</button>
+</form>
+
+{% if license_json %}
+<div class="result success">
+    <h3>License Generated!</h3>
+    <p>Save the content below to a file (e.g., license.json) and send it to the customer.</p>
+    <pre>{{ license_json }}</pre>
+    <a href="data:application/json;charset=utf-8,{{ license_json }}" download="license.json"><button>Download
+            JSON</button></a>
+</div>
+{% endif %}
+
+{% if error %}
+<div class="result error">
+    <h3>Error Generating License</h3>
+    <p>{{ error }}</p>
+</div>
+{% endif %}
+{% endblock %}

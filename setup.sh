@@ -215,7 +215,12 @@ setup_backend() {
     
     # Install Python dependencies
     print_info "Installing Python dependencies..."
-    pip install -r requirements.txt
+    if [ -d "wheels" ]; then
+        print_info "Using local wheels from backend/wheels..."
+        pip install --no-index --find-links wheels -r requirements.txt
+    else
+        pip install -r requirements.txt
+    fi
     print_success "Python dependencies installed"
     
     # Add GitPython for auto-update feature
@@ -380,7 +385,7 @@ verify_installation() {
 ################################################################################
 
 main() {
-    clear
+    # clear removed for non-interactive execution
     echo -e "${GREEN}"
     echo "╔════════════════════════════════════════════════════════════╗"
     echo "║                                                            ║"

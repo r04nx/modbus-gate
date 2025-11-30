@@ -239,14 +239,14 @@ class IEC104ServerService:
                     soe = mapping.get("soe", False)  # Sequence of Events
                     cot_str = mapping.get("cot", "SPONTANEOUS")  # Cause of Transmission
                     
-                    # Map CoT string to c104.Cause enum
+                    # Map CoT string to c104.Cot enum
                     cot_map = {
-                        "SPONTANEOUS": c104.Cause.SPONTANEOUS,
-                        "PERIODIC": c104.Cause.PERIODIC,
-                        "INTERROGATED": c104.Cause.INTERROGATED,
-                        "REQUEST": c104.Cause.REQUEST
+                        "SPONTANEOUS": c104.Cot.SPONTANEOUS,
+                        "PERIODIC": c104.Cot.PERIODIC,
+                        "INTERROGATED": c104.Cot.INTERROGATED_BY_STATION,
+                        "REQUEST": c104.Cot.REQUEST
                     }
-                    cot = cot_map.get(cot_str, c104.Cause.SPONTANEOUS)
+                    cot = cot_map.get(cot_str, c104.Cot.SPONTANEOUS)
                     
                     # Create point if it doesn't exist
                     if tag_id not in self.mapped_points:

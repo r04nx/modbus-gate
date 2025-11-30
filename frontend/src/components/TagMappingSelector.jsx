@@ -233,8 +233,17 @@ const TagMappingSelector = ({ isOpen, onClose, onSelect, mappedTags = [], title 
                                                                 {isSelected && <CheckCircle size={14} className="text-white" />}
                                                             </div>
                                                             <div>
-                                                                <div className="text-white font-medium text-sm">{tag.name}</div>
-                                                                <div className="text-xs text-text-muted font-mono">{tag.tag_id}</div>
+                                                                <div className="text-white font-medium text-sm">
+                                                                    {tag.type === 'IO' && tag.device_id ? (
+                                                                        <span className="flex items-baseline gap-1">
+                                                                            <span className="text-primary font-bold">{deviceName}:</span>
+                                                                            <span>{tag.name}</span>
+                                                                        </span>
+                                                                    ) : (
+                                                                        tag.name
+                                                                    )}
+                                                                </div>
+                                                                <div className="text-xs text-text-muted font-mono"><small>{tag.tag_id}</small></div>
                                                             </div>
                                                         </div>
                                                         <div className="flex items-center gap-2">

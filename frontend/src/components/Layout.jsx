@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Server, Tag, Settings, Activity, FileText, Network, Terminal, Download } from 'lucide-react';
+import { LayoutDashboard, Server, Tag, Settings, Activity, FileText, Network, Terminal, Download, Database } from 'lucide-react';
 import clsx from 'clsx';
 import axios from 'axios';
 
@@ -28,6 +28,7 @@ const Layout = ({ children }) => {
     }, []);
 
     const [systemStatus, setSystemStatus] = useState('checking');
+    const [systemError, setSystemError] = useState(null);
 
     useEffect(() => {
         const checkSystem = async () => {
@@ -37,10 +38,13 @@ const Layout = ({ children }) => {
                 const API_BASE = `http://${API_HOST}:${API_PORT}/api/v1`;
                 const getAuthHeader = () => ({ Authorization: `Basic ${btoa('admin:admin')}` });
 
-                await axios.get(`${API_BASE}/system/hostname`, { headers: getAuthHeader(), timeout: 2000 });
+                await axios.get(`${API_BASE}/system/hostname`, { headers: getAuthHeader(), timeout: 5000 });
                 setSystemStatus('online');
+                setSystemError(null);
             } catch (e) {
                 setSystemStatus('offline');
+                setSystemError(e.message + (e.response ? ` (${e.response.status})` : ''));
+                console.error("System check failed:", e);
             }
         };
 
@@ -61,6 +65,7 @@ const Layout = ({ children }) => {
         navItems.push({ path: '/terminal', label: 'Terminal', icon: Terminal });
     }
 
+    navItems.push({ path: '/database', label: 'Database', icon: Database });
     navItems.push({ path: '/settings', label: 'Settings', icon: Settings });
 
     return (
@@ -118,6 +123,11 @@ const Layout = ({ children }) => {
                                     systemStatus === 'offline' ? 'System Offline' : 'Connecting...'}
                             </span>
                         </div>
+                        {systemError && (
+                            <p className="text-[10px] text-error mb-1 truncate" title={systemError}>
+                                {systemError}
+                            </p>
+                        )}
                         <p className="text-xs text-text-muted">v1.0.0 • Stable</p>
                     </div>
                 </div>

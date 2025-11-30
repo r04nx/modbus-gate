@@ -185,10 +185,17 @@ const TagTreeSelector = ({ tags = [], devices = [], onSelect, onClose }) => {
                                                     >
                                                         <Tag size={14} className="text-slate-400 group-hover:text-primary" />
                                                         <div className="flex-1 min-w-0">
-                                                            <div className="text-sm font-medium text-white truncate">{tag.tag_id}</div>
-                                                            {tag.name && tag.name !== tag.tag_id && (
-                                                                <div className="text-xs text-slate-400 truncate">{tag.name}</div>
-                                                            )}
+                                                            <div className="text-sm font-medium text-white truncate">
+                                                                {tag.type === 'IO' && tag.device_id ? (
+                                                                    <span className="flex items-baseline gap-1">
+                                                                        <span className="text-primary font-bold">{deviceName}:</span>
+                                                                        <span>{tag.name}</span>
+                                                                    </span>
+                                                                ) : (
+                                                                    tag.name || tag.tag_id
+                                                                )}
+                                                            </div>
+                                                            <div className="text-xs text-slate-400 truncate font-mono"><small>{tag.tag_id}</small></div>
                                                         </div>
                                                         <span className="text-xs text-slate-500 ml-2 font-mono">{tag.data_type}</span>
                                                     </button>

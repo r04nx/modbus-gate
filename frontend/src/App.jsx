@@ -12,6 +12,7 @@ import Terminal from './pages/Terminal';
 import BufferedData from './pages/BufferedData';
 
 import Layout from './components/Layout';
+import Database from './pages/Database';
 
 function App() {
   return (
@@ -25,6 +26,7 @@ function App() {
           <Route path="/servers" element={<Servers />} />
           <Route path="/logs" element={<Logs />} />
           <Route path="/terminal" element={<Terminal />} />
+          <Route path="/database" element={<Database />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/buffered-data" element={<BufferedData />} />
         </Routes>

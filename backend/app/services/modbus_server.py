@@ -90,7 +90,10 @@ class ModbusServerService:
     async def _monitor_loop(self):
         from app.core.database import SessionLocal
         from app.models import models
+        import json
         
+        last_config_hash = None
+
         while True:
             try:
                 # 1. Check Configuration
@@ -102,7 +105,8 @@ class ModbusServerService:
                         db_config = {
                             "enabled": config.enabled,
                             "port": int(config.config.get("port", 5020)),
-                            "mappings": config.config.get("mappings", [])
+                            "mappings": config.config.get("mappings", []),
+                            "reset_on_change": config.config.get("reset_on_change", False)
                         }
                     db.close()
                 except Exception as e:
@@ -113,6 +117,11 @@ class ModbusServerService:
                 if not db_config:
                     await asyncio.sleep(5)
                     continue
+
+                # Calculate hash to detect changes
+                current_config_hash = hash(json.dumps(db_config, sort_keys=True))
+                config_changed = last_config_hash is not None and current_config_hash != last_config_hash
+                last_config_hash = current_config_hash
 
                 # 2. Manage Lifecycle
                 should_run = db_config["enabled"]
@@ -125,6 +134,7 @@ class ModbusServerService:
                         self.server_task = asyncio.create_task(self._run_server())
                         # Wait a bit for it to start
                         await asyncio.sleep(1)
+                    
                     elif self.port != target_port:
                         # Restart needed due to port change
                         logging.info(f"Port changed from {self.port} to {target_port}. Restarting...")
@@ -132,6 +142,12 @@ class ModbusServerService:
                         self.port = target_port
                         self.server_task = asyncio.create_task(self._run_server())
                         await asyncio.sleep(1)
+                    
+                        # Mappings changed - Clear memory to remove stale data
+                        if db_config.get("reset_on_change", False):
+                            logging.info("Modbus mappings changed and reset_on_change is enabled. Clearing memory...")
+                            self._reset_memory()
+
                 else:
                     if self.is_running:
                         # Stop server
@@ -146,6 +162,19 @@ class ModbusServerService:
                 logging.error(f"Error in Modbus monitor loop: {e}")
             
             await asyncio.sleep(1)
+
+    def _reset_memory(self):
+        # Re-initialize DataBlocks to zero
+        self.store = ModbusDeviceContext(
+            di=ModbusSequentialDataBlock(0, [0]*10000),
+            co=ModbusSequentialDataBlock(0, [0]*10000),
+            hr=ModbusSequentialDataBlock(0, [0]*10000),
+            ir=ModbusSequentialDataBlock(0, [0]*10000))
+        self.context = ModbusServerContext(devices={1: self.store}, single=False)
+        
+        # Update running server context if it exists
+        if self.server:
+            self.server.context = self.context
 
     async def _sync_tags(self, mappings):
         # This task syncs GlobalDataStore values to Modbus Registers based on explicit mappings

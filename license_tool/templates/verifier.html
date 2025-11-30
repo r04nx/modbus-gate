@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}License Verifier{% endblock %}
+
+{% block content %}
+<h1>Verify License</h1>
+<form method="post" action="/verify" enctype="multipart/form-data">
+    <div class="form-group">
+        <label for="license_file">License File (JSON)</label>
+        <input type="file" id="license_file" name="license_file" accept=".json" required>
+    </div>
+    <div class="form-group">
+        <label for="company_secret">Company Secret</label>
+        <input type="password" id="company_secret" name="company_secret" required
+            placeholder="Shared secret for decryption">
+    </div>
+    <div class="form-group">
+        <label for="public_key">Public Key (PEM)</label>
+        <textarea id="public_key" name="public_key" rows="5" required
+            placeholder="-----BEGIN PUBLIC KEY-----..."></textarea>
+    </div>
+    <button type="submit">Verify License</button>
+</form>
+
+{% if verification_result %}
+{% if verification_result.valid %}
+<div class="result success">
+    <h3>License Valid!</h3>
+    <ul>
+        <li><strong>Customer:</strong> {{ verification_result.data.customer_name }}</li>
+        <li><strong>Plan:</strong> {{ verification_result.data.plan }}</li>
+        <li><strong>Valid Till:</strong> {{ verification_result.data.valid_till }}</li>
+        <li><strong>Fingerprint Match:</strong> {{ verification_result.fingerprint_match }}</li>
+    </ul>
+</div>
+{% else %}
+<div class="result error">
+    <h3>License Invalid!</h3>
+    <p>Reason: {{ verification_result.message }}</p>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}
