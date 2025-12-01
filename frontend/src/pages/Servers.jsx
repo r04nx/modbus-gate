@@ -136,6 +136,8 @@ export default function Servers() {
         try {
             const response = await axios.get(`${API_URL}/servers/${type}`);
             const data = response.data;
+            // Ensure config object exists
+            if (!data.config) data.config = {};
             // Ensure arrays exist
             if (!data.config.mappings) data.config.mappings = [];
             if (!data.config.brokers) data.config.brokers = [];
@@ -333,6 +335,13 @@ export default function Servers() {
         }
     };
 
+    const deleteOrphanedMappings = () => {
+        if (window.confirm("Are you sure you want to delete all orphaned mappings?")) {
+            const newMappings = (config.config.mappings || []).filter(m => availableTags.some(t => t.tag_id === m.tag_id));
+            handleConfigChange('mappings', newMappings);
+        }
+    };
+
     // --- Selection Logic ---
     const [selectedIndices, setSelectedIndices] = useState(new Set());
 
@@ -388,6 +397,17 @@ export default function Servers() {
             const occupied = {}; // Map key -> { index, tag_id }
 
             mappings.forEach((m, idx) => {
+                // Check for Orphaned Tags
+                if (!availableTags.some(t => t.tag_id === m.tag_id)) {
+                    errors.push({
+                        type: 'ORPHAN_TAG',
+                        tag: m.tag_id,
+                        message: `Orphaned Tag: '${m.tag_id}' does not exist in the system.`,
+                        index: idx
+                    });
+                    conflictIndices.add(idx);
+                }
+
                 const slaveId = m.slave_id !== undefined ? m.slave_id : (config.config.slave_id || 1);
                 const regType = m.register_type || 'HR';
                 const start = parseInt(m.address);
@@ -435,6 +455,17 @@ export default function Servers() {
         } else if (activeTab === 'IEC104_SERVER') {
             const used = {};
             mappings.forEach((m, idx) => {
+                // Check for Orphaned Tags
+                if (!availableTags.some(t => t.tag_id === m.tag_id)) {
+                    errors.push({
+                        type: 'ORPHAN_TAG',
+                        tag: m.tag_id,
+                        message: `Orphaned Tag: '${m.tag_id}' does not exist in the system.`,
+                        index: idx
+                    });
+                    conflictIndices.add(idx);
+                }
+
                 const base = parseInt(m.base_value || 0);
                 const offset = parseInt(m.ioa || 0);
                 const ioa = base + offset;
@@ -453,6 +484,19 @@ export default function Servers() {
                     used[ioa] = { index: idx, tag_id: m.tag_id };
                 }
             });
+        } else if (activeTab === 'OPC_UA_SERVER') {
+            mappings.forEach((m, idx) => {
+                // Check for Orphaned Tags
+                if (!availableTags.some(t => t.tag_id === m.tag_id)) {
+                    errors.push({
+                        type: 'ORPHAN_TAG',
+                        tag: m.tag_id,
+                        message: `Orphaned Tag: '${m.tag_id}' does not exist in the system.`,
+                        index: idx
+                    });
+                    conflictIndices.add(idx);
+                }
+            });
         }
 
         return { errors, conflictIndices };
@@ -469,12 +513,9 @@ export default function Servers() {
         let filename = `${activeTab}_config_${timestamp}.csv`;
 
         if (activeTab === 'MODBUS_SERVER') {
-            csvContent += "tag_id,device_name,tag_name,slave_id,register_type,address,data_type\n";
+            csvContent += "tag_id,slave_id,register_type,address,data_type\n";
             (config.config.mappings || []).forEach(m => {
-                const tag = availableTags.find(t => t.tag_id === m.tag_id);
-                const tagName = tag ? tag.name : '';
-                const deviceName = tag && tag.device_id ? (devicesMap[tag.device_id] || '') : '';
-                csvContent += `${m.tag_id},${deviceName},${tagName},${m.slave_id || 1},${m.register_type},${m.address},${m.data_type}\n`;
+                csvContent += `${m.tag_id},${m.slave_id || 1},${m.register_type},${m.address},${m.data_type}\n`;
             });
         } else if (activeTab === 'OPC_UA_SERVER') {
             csvContent += "tag_id,node_name,data_type\n";
@@ -523,6 +564,8 @@ export default function Servers() {
             const newMappings = [];
             const newPublications = [];
 
+            const errors = [];
+
             // Helper to get value by column name(s)
             const getVal = (row, ...colNames) => {
                 for (const name of colNames) {
@@ -556,43 +599,19 @@ export default function Servers() {
                 if (activeTab === 'MODBUS_SERVER') {
                     // Smart Resolution for Modbus
                     let tagId = getVal(row, 'tag_id');
-                    const deviceName = getVal(row, 'device_name');
-                    const tagName = getVal(row, 'tag_name', 'name'); // Support 'tag_name' or 'name'
 
-                    let resolvedTagId = null;
-
-                    // 1. Try explicit Tag ID
-                    if (tagId && availableTags.some(t => t.tag_id === tagId)) {
-                        resolvedTagId = tagId;
-                    }
-
-                    // 2. Try Name Resolution if ID failed or missing
-                    if (!resolvedTagId && tagName) {
-                        const candidates = availableTags.filter(t => t.name === tagName);
-                        if (candidates.length > 0) {
-                            if (deviceName) {
-                                // Find device ID for this name
-                                const deviceId = Object.keys(devicesMap).find(id => devicesMap[id] === deviceName);
-                                if (deviceId) {
-                                    const match = candidates.find(t => t.device_id === deviceId);
-                                    if (match) resolvedTagId = match.tag_id;
-                                }
-                            } else {
-                                // No device name provided (e.g. Calculation tag, or user omitted it)
-                                // Pick the first match. 
-                                resolvedTagId = candidates[0].tag_id;
-                            }
+                    if (tagId) {
+                        if (availableTags.some(t => t.tag_id === tagId)) {
+                            newMappings.push({
+                                tag_id: tagId,
+                                slave_id: parseInt(getVal(row, 'slave_id') || (config.config.slave_id || 1)),
+                                register_type: getVal(row, 'register_type') || 'HR',
+                                address: parseInt(getVal(row, 'address') || 1),
+                                data_type: getVal(row, 'data_type') || 'INT16'
+                            });
+                        } else {
+                            errors.push(`Row ${i + 1}: Tag ID '${tagId}' not found.`);
                         }
-                    }
-
-                    if (resolvedTagId) {
-                        newMappings.push({
-                            tag_id: resolvedTagId,
-                            slave_id: parseInt(getVal(row, 'slave_id') || (config.config.slave_id || 1)),
-                            register_type: getVal(row, 'register_type') || 'HR',
-                            address: parseInt(getVal(row, 'address') || 1),
-                            data_type: getVal(row, 'data_type') || 'INT16'
-                        });
                     }
                 } else if (activeTab === 'OPC_UA_SERVER') {
                     const tagId = getVal(row, 'tag_id') || row[0];
@@ -637,13 +656,17 @@ export default function Servers() {
 
             if (newMappings.length > 0) {
                 handleConfigChange('mappings', [...(config.config.mappings || []), ...newMappings]);
-                alert(`Imported ${newMappings.length} mappings successfully.`);
-            }
-            if (newPublications.length > 0) {
+                let msg = `Imported ${newMappings.length} mappings successfully.`;
+                if (errors.length > 0) {
+                    msg += `\n\nWarnings:\n${errors.join('\n')}`;
+                }
+                alert(msg);
+            } else if (errors.length > 0) {
+                alert(`No valid mappings imported.\n\nErrors:\n${errors.join('\n')}`);
+            } else if (newPublications.length > 0) {
                 handleConfigChange('publications', [...(config.config.publications || []), ...newPublications]);
                 alert(`Imported ${newPublications.length} publications successfully.`);
-            }
-            if (newMappings.length === 0 && newPublications.length === 0) {
+            } else {
                 alert('No valid entries found to import.');
             }
         };
@@ -745,6 +768,11 @@ export default function Servers() {
                             <button onClick={autoAdjustMappings} className="flex items-center gap-2 px-3 py-1.5 bg-warning/20 hover:bg-warning/30 text-warning rounded-lg text-sm font-medium transition-colors border border-warning/30">
                                 <Wand2 size={14} /> Auto Fix All
                             </button>
+                            {validationErrors.some(e => e.type === 'ORPHAN_TAG') && (
+                                <button onClick={deleteOrphanedMappings} className="flex items-center gap-2 px-3 py-1.5 bg-error/20 hover:bg-error/30 text-error rounded-lg text-sm font-medium transition-colors border border-error/30">
+                                    <Trash2 size={14} /> Delete Orphans
+                                </button>
+                            )}
                         </div>
                         <div className="max-h-32 overflow-y-auto text-xs text-warning/80 space-y-1 pl-6">
                             {validationErrors.map((err, i) => (
@@ -816,7 +844,11 @@ export default function Servers() {
                                                 })()}
                                             </div>
                                             <div className="text-xs text-text-muted font-mono"><small>{mapping.tag_id}</small></div>
-                                            {hasError && <div className="text-[10px] text-red-400 font-semibold mt-1">Conflict Detected</div>}
+                                            {hasError && (
+                                                <div className="text-[10px] text-red-400 font-semibold mt-1">
+                                                    {validationErrors.find(e => e.index === idx)?.type === 'ORPHAN_TAG' ? 'Orphaned Tag' : 'Conflict Detected'}
+                                                </div>
+                                            )}
                                         </td>
                                         <td className="px-6 py-3">
                                             <input

@@ -59,6 +59,17 @@ const TagForm = ({ onClose, onSubmit, editTag = null, initialType = null }) => {
         fetchData();
     }, []);
 
+    // Auto-generate Tag ID for IO tags
+    useEffect(() => {
+        if (type === 'IO' && formData.device_id && formData.name) {
+            const device = devices.find(d => d.id === parseInt(formData.device_id));
+            if (device) {
+                const newTagId = `${device.name}:${formData.name}`;
+                setFormData(prev => ({ ...prev, tag_id: newTagId }));
+            }
+        }
+    }, [type, formData.device_id, formData.name, devices]);
+
     const handleChange = (e) => {
         const { name, value } = e.target;
         if (name === 'device_id') {
@@ -78,6 +89,12 @@ const TagForm = ({ onClose, onSubmit, editTag = null, initialType = null }) => {
 
     const handleSubmit = (e) => {
         e.preventDefault();
+
+        // Validation
+        if (/\s|:/.test(formData.name)) {
+            alert("Tag Name must not contain spaces or colons.");
+            return;
+        }
 
         // Bulk mode: create multiple tags
         if (bulkMode && type === 'IO') {
@@ -597,13 +614,14 @@ const TagForm = ({ onClose, onSubmit, editTag = null, initialType = null }) => {
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-text-secondary mb-2">Tag ID (Optional)</label>
+                        <label className="block text-sm font-medium text-text-secondary mb-2">Tag ID {type === 'IO' ? '(Auto-generated)' : '(Optional)'}</label>
                         <input
                             name="tag_id"
                             value={formData.tag_id}
                             onChange={handleChange}
-                            placeholder="Auto-generated if empty"
-                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
+                            placeholder={type === 'IO' ? "Auto-generated" : "Auto-generated if empty"}
+                            readOnly={type === 'IO'}
+                            className={`w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors ${type === 'IO' ? 'opacity-50 cursor-not-allowed' : ''}`}
                         />
                     </div>
 

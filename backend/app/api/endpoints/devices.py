@@ -30,6 +30,14 @@ def delete_device(device_id: int, db: Session = Depends(get_db)):
     db_device = db.query(models.Device).filter(models.Device.id == device_id).first()
     if not db_device:
         raise HTTPException(status_code=404, detail="Device not found")
+    # Check for dependent tags
+    if db_device.tags:
+        tag_ids = [t.tag_id for t in db_device.tags]
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot delete device '{db_device.name}' because it is used by the following tags: {', '.join(tag_ids)}. Please delete these tags first."
+        )
+
     db.delete(db_device)
     db.commit()
     return {"ok": True}

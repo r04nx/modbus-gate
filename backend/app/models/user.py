@@ -2,7 +2,7 @@ from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, E
 from sqlalchemy.orm import relationship
 from datetime import datetime, timedelta
 import enum
-from passlib.hash import bcrypt
+from passlib.hash import argon2
 import secrets
 
 from ..core.database import Base
@@ -28,11 +28,11 @@ class User(Base):
 
     def set_password(self, password: str):
         """Hash and set the user's password"""
-        self.password_hash = bcrypt.hash(password)
+        self.password_hash = argon2.hash(password)
 
     def verify_password(self, password: str) -> bool:
         """Verify a password against the hash"""
-        return bcrypt.verify(password, self.password_hash)
+        return argon2.verify(password, self.password_hash)
 
     def update_last_login(self):
         """Update the last login timestamp"""

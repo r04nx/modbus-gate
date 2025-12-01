@@ -12,6 +12,10 @@ from app.models.system_settings import SystemSettings
 
 def init_database():
     """Initialize database with default data"""
+    # Create tables
+    from app.core.database import Base
+    Base.metadata.create_all(bind=engine)
+    
     db = SessionLocal()
     
     try:

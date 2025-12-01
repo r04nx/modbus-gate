@@ -8,6 +8,7 @@ import { Plus, Tag as TagIcon, Activity, Hash, Filter, RefreshCw, Download, Uplo
 import clsx from 'clsx';
 import Sparkline from '../components/Sparkline';
 import PopupChart from '../components/PopupChart';
+import { useToast } from '../contexts/ToastContext';
 
 const Tags = () => {
     const [searchParams, setSearchParams] = useSearchParams();
@@ -28,6 +29,7 @@ const Tags = () => {
     const [writeTagData, setWriteTagData] = useState(null);
     const [writeValue, setWriteValue] = useState('');
     const [writing, setWriting] = useState(false);
+    const showToast = useToast();
 
     // Multi-select State
     const [selectedTags, setSelectedTags] = useState(new Set());
@@ -67,7 +69,7 @@ const Tags = () => {
             setSelectedTags(new Set());
             fetchTags();
             setLoading(false);
-            // alert(`Deletion complete.\nSuccess: ${successCount}\nFailed: ${failCount}`);
+            showToast.success(`Deletion complete. Success: ${successCount}, Failed: ${failCount}`);
         }
     };
 
@@ -122,18 +124,19 @@ const Tags = () => {
                     }
                 }
 
-                alert(`Bulk creation complete!\nSuccess: ${successCount}\nFailed: ${failCount}`);
+                showToast.success(`Bulk creation complete! Success: ${successCount}, Failed: ${failCount}`);
                 setLoading(false);
             } else {
                 // Single tag creation
                 await createTag(tagData);
+                showToast.success('Tag created successfully');
             }
 
             setShowForm(false);
             fetchTags();
         } catch (error) {
             console.error("Failed to create tag", error);
-            alert("Failed to create tag: " + (error.response?.data?.detail || error.message));
+            // Error handled by global interceptor
         }
     };
 
@@ -145,6 +148,7 @@ const Tags = () => {
             setShowForm(false);
             setEditingTag(null);
             fetchTags();
+            showToast.success('Tag updated successfully');
         } catch (error) {
             console.error("Failed to update tag", error);
         }
@@ -155,6 +159,7 @@ const Tags = () => {
             try {
                 await deleteTag(id);
                 fetchTags();
+                showToast.success('Tag deleted successfully');
             } catch (error) {
                 console.error("Failed to delete tag", error);
             }
@@ -163,7 +168,7 @@ const Tags = () => {
 
     const handleExport = async () => {
         if (filter === 'SYSTEM') {
-            alert('Cannot export SYSTEM tags');
+            showToast.warning('Cannot export SYSTEM tags');
             return;
         }
 
@@ -179,13 +184,13 @@ const Tags = () => {
             link.remove();
         } catch (error) {
             console.error("Failed to export tags", error);
-            alert('Failed to export tags');
+            // Error handled by global interceptor
         }
     };
 
     const handleImport = async (event) => {
         if (filter === 'SYSTEM') {
-            alert('Cannot import SYSTEM tags');
+            showToast.warning('Cannot import SYSTEM tags');
             return;
         }
 
@@ -194,11 +199,16 @@ const Tags = () => {
 
         try {
             const { data } = await importTags(filter, file);
-            alert(`Import complete!\nCreated: ${data.created}\nErrors: ${data.errors.length}\n${data.errors.length > 0 ? '\n' + data.errors.join('\n') : ''}`);
+            showToast.success(`Import complete! Created: ${data.created}`);
+            if (data.errors.length > 0) {
+                // Show errors as separate toast or log
+                console.error("Import errors:", data.errors);
+                showToast.warning(`Import finished with ${data.errors.length} errors. Check console for details.`);
+            }
             fetchTags();
         } catch (error) {
             console.error("Failed to import tags", error);
-            alert('Failed to import tags');
+            // Error handled by global interceptor
         }
 
         // Reset file input
@@ -212,14 +222,14 @@ const Tags = () => {
         setWriting(true);
         try {
             await writeTag(writeTagData.tag_id, writeValue);
-            alert(`Successfully wrote value to ${writeTagData.name}`);
+            showToast.success(`Successfully wrote value to ${writeTagData.name}`);
             setShowWriteModal(false);
             setWriteTagData(null);
             setWriteValue('');
             fetchValues(); // Refresh values immediately
         } catch (error) {
             console.error("Failed to write tag", error);
-            alert(`Failed to write tag: ${error.response?.data?.detail || error.message}`);
+            // Error handled by global interceptor
         } finally {
             setWriting(false);
         }
@@ -401,7 +411,6 @@ const Tags = () => {
                                     <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Tag Name</th>
                                     {filter === 'IO' && (
                                         <>
-                                            <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Device</th>
                                             <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Address</th>
                                             <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Data Type</th>
                                         </>
@@ -472,9 +481,6 @@ const Tags = () => {
                                             </td>
                                             {filter === 'IO' && (
                                                 <>
-                                                    <td className="p-4 text-sm text-text-secondary">
-                                                        {devicesMap[tag.device_id] || tag.device_id}
-                                                    </td>
                                                     <td className="p-4 text-sm text-text-secondary font-mono">{tag.address}</td>
                                                     <td className="p-4 text-sm text-text-secondary">{tag.data_type}</td>
                                                 </>
@@ -559,8 +565,9 @@ const Tags = () => {
                                                                         try {
                                                                             await writeTag(tag.tag_id, tag.initial_value);
                                                                             fetchValues();
+                                                                            showToast.success(`Reset ${tag.name} to initial value`);
                                                                         } catch (e) {
-                                                                            alert('Failed to reset value: ' + e.message);
+                                                                            // Error handled by global interceptor
                                                                         }
                                                                     }
                                                                 }}

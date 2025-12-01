@@ -29,6 +29,20 @@ export default {
             boxShadow: {
                 'glow': '0 0 20px rgba(59, 130, 246, 0.5)',
                 'card': '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+            },
+            keyframes: {
+                'slide-in-right': {
+                    '0%': { transform: 'translateX(100%)' },
+                    '100%': { transform: 'translateX(0)' },
+                },
+                'fade-in': {
+                    '0%': { opacity: '0' },
+                    '100%': { opacity: '1' },
+                }
+            },
+            animation: {
+                'slide-in-right': 'slide-in-right 0.3s ease-out',
+                'fade-in': 'fade-in 0.3s ease-out',
             }
         },
     },

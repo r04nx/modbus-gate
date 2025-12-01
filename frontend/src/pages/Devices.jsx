@@ -6,12 +6,14 @@ import TestConnectionModal from '../components/TestConnectionModal';
 import { Plus, Trash2, Server, MoreVertical, RefreshCw, Power, Activity, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import clsx from 'clsx';
 import { CardSkeleton } from '../components/common/Skeleton';
+import { useToast } from '../contexts/ToastContext';
 
 const Devices = () => {
     const navigate = useNavigate();
     const [devices, setDevices] = useState([]);
     const [showForm, setShowForm] = useState(false);
     const [loading, setLoading] = useState(true);
+    const showToast = useToast();
 
     const fetchDevices = async () => {
         setLoading(true);
@@ -34,6 +36,7 @@ const Devices = () => {
             await createDevice(deviceData);
             setShowForm(false);
             fetchDevices();
+            showToast.success('Device created successfully');
         } catch (error) {
             console.error("Failed to create device", error);
         }
@@ -44,6 +47,7 @@ const Devices = () => {
             try {
                 await deleteDevice(id);
                 fetchDevices();
+                showToast.success('Device deleted successfully');
             } catch (error) {
                 console.error("Failed to delete device", error);
             }
@@ -61,6 +65,7 @@ const Devices = () => {
             // Optimistic update
             setDevices(devices.map(d => d.id === device.id ? updatedDevice : d));
             await updateDevice(device.id, { enabled: !device.enabled });
+            showToast.success(`Device ${!device.enabled ? 'enabled' : 'disabled'}`);
         } catch (error) {
             console.error("Failed to update device status", error);
             fetchDevices(); // Revert on error
@@ -73,6 +78,7 @@ const Devices = () => {
             setShowForm(false);
             setEditingDevice(null);
             fetchDevices();
+            showToast.success('Device updated successfully');
         } catch (error) {
             console.error("Failed to update device", error);
         }

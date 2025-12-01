@@ -1,12 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Server, Tag, Settings, Activity, FileText, Network, Terminal, Download, Database } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { LayoutDashboard, Server, Tag, Settings, Activity, FileText, Network, Terminal, Download, Database, LogOut } from 'lucide-react';
 import clsx from 'clsx';
 import axios from 'axios';
 
 const Layout = ({ children }) => {
     const location = useLocation();
+    const navigate = useNavigate();
     const [terminalEnabled, setTerminalEnabled] = useState(false);
+
+    const handleLogout = () => {
+        localStorage.removeItem('auth');
+        navigate('/login');
+    };
 
     useEffect(() => {
         const checkTerminal = async () => {
@@ -130,6 +136,16 @@ const Layout = ({ children }) => {
                         )}
                         <p className="text-xs text-text-muted">v1.0.0 • Stable</p>
                     </div>
+                </div>
+
+                <div className="p-4 border-t border-gray-700">
+                    <button
+                        onClick={handleLogout}
+                        className="flex items-center space-x-3 px-4 py-3 text-gray-300 hover:bg-gray-700 rounded-lg transition-colors w-full"
+                    >
+                        <LogOut size={20} />
+                        <span>Logout</span>
+                    </button>
                 </div>
             </aside>
 

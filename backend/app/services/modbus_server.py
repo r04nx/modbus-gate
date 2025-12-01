@@ -2,9 +2,17 @@ import asyncio
 import logging
 from pymodbus.server import StartAsyncTcpServer
 from pymodbus.datastore import ModbusServerContext
-from pymodbus.datastore.context import ModbusDeviceContext
+try:
+    from pymodbus.datastore.context import ModbusSlaveContext
+except ImportError:
+    from pymodbus.datastore.context import ModbusDeviceContext as ModbusSlaveContext
+
 from pymodbus.datastore import ModbusSequentialDataBlock
-from pymodbus import ModbusDeviceIdentification
+
+try:
+    from pymodbus.device import ModbusDeviceIdentification
+except ImportError:
+    from pymodbus.pdu.device import ModbusDeviceIdentification
 from app.core.store import GlobalDataStore
 
 # Custom DataBlock to link with GlobalDataStore
@@ -31,8 +39,8 @@ class ModbusServerService:
         self.monitor_task = None
         self.is_running = False
         
-        # In pymodbus 3.x, ModbusSlaveContext is now ModbusDeviceContext
-        self.store = ModbusDeviceContext(
+        # In pymodbus 3.x, ModbusSlaveContext is the correct class
+        self.store = ModbusSlaveContext(
             di=ModbusSequentialDataBlock(0, [0]*10000),
             co=ModbusSequentialDataBlock(0, [0]*10000),
             hr=ModbusSequentialDataBlock(0, [0]*10000),
@@ -165,7 +173,7 @@ class ModbusServerService:
 
     def _reset_memory(self):
         # Re-initialize DataBlocks to zero
-        self.store = ModbusDeviceContext(
+        self.store = ModbusSlaveContext(
             di=ModbusSequentialDataBlock(0, [0]*10000),
             co=ModbusSequentialDataBlock(0, [0]*10000),
             hr=ModbusSequentialDataBlock(0, [0]*10000),

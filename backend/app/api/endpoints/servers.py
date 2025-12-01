@@ -35,6 +35,8 @@ def update_server(type: str, server_update: schemas.ServerConfigUpdate, db: Sess
     
     update_data = server_update.model_dump(exclude_unset=True)
     for key, value in update_data.items():
+        if key == 'config' and value is None:
+            continue # Don't allow setting config to None
         setattr(server, key, value)
     
     db.add(server)
@@ -185,9 +187,10 @@ def delete_certificate(cert_id: int, db: Session = Depends(get_db)):
         brokers = mqtt_config.config.get("brokers", [])
         for broker in brokers:
             if broker.get("certificate_id") == cert_id:
+                broker_info = f"{broker.get('host', 'Unknown Host')}:{broker.get('port', 'Unknown Port')}"
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Certificate is in use by MQTT broker '{broker.get('id')}'"
+                    detail=f"Certificate is in use by MQTT broker at {broker_info} (ID: {broker.get('id')}). Please remove this broker configuration first."
                 )
     
     db.delete(cert)

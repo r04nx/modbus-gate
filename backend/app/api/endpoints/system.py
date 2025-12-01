@@ -1,62 +1,27 @@
-"""
-System Settings API Endpoints
-
-Provides endpoints for:
-- Hostname management
-- SSH configuration
-- System update settings
-"""
-
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from app.core.database import get_db
+from app.models.models import Device
+from app.models.system_settings import SystemSettings
+import serial.tools.list_ports
+from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
-from typing import Optional, List
-import subprocess
-import os
-
-from ...core.database import get_db
-from ...core.auth import get_current_user, get_current_superroot
-from ...models.user import User
-from ...models.system_settings import SystemSettings
-
 
 router = APIRouter()
 
+# --- System Settings Logic ---
 
-# Pydantic models
-class HostnameResponse(BaseModel):
-    hostname: str
+class SystemSettingUpdate(BaseModel):
+    key: str
+    value: str
 
-
-class HostnameUpdate(BaseModel):
-    hostname: str
-
-
-class SSHConfig(BaseModel):
-    enabled: bool
-
-
-class SSHKeyResponse(BaseModel):
-    id: int
-    name: str
-    fingerprint: str
-    created_at: str
-
-
-class UpdateSettings(BaseModel):
-    auto_update_enabled: bool
-    repo_url: str
-
-
-# Helper functions
 def get_setting(key: str, db: Session, default: str = "") -> str:
-    """Get a system setting value."""
     setting = db.query(SystemSettings).filter(SystemSettings.key == key).first()
-    return setting.value if setting else default
-
+    if setting:
+        return setting.value
+    return default
 
 def set_setting(key: str, value: str, db: Session):
-    """Set a system setting value."""
     setting = db.query(SystemSettings).filter(SystemSettings.key == key).first()
     if setting:
         setting.value = value
@@ -64,364 +29,74 @@ def set_setting(key: str, value: str, db: Session):
         setting = SystemSettings(key=key, value=value)
         db.add(setting)
     db.commit()
+    db.refresh(setting)
+    return setting
 
+@router.get("/settings")
+def get_all_settings(db: Session = Depends(get_db)):
+    settings = db.query(SystemSettings).all()
+    return {s.key: s.value for s in settings}
 
-# Hostname endpoints
-@router.get("/hostname", response_model=HostnameResponse)
-def get_hostname(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Get current system hostname."""
-    hostname = get_setting("hostname", db, "vistaiot-gateway")
-    return HostnameResponse(hostname=hostname)
+@router.put("/settings")
+def update_settings(settings: Dict[str, str], db: Session = Depends(get_db)):
+    for key, value in settings.items():
+        set_setting(key, value, db)
+    return {"status": "success"}
 
+# --- COM Ports Logic ---
 
-@router.put("/hostname", response_model=HostnameResponse)
-def set_hostname(
-    hostname_data: HostnameUpdate,
-    current_user: User = Depends(get_current_superroot),
-    db: Session = Depends(get_db)
-):
-    """Set system hostname (superroot only)."""
-    try:
-        # Update in database
-        set_setting("hostname", hostname_data.hostname, db)
-        
-        # Try to update system hostname (may require sudo)
-        try:
-            subprocess.run(
-                ["hostnamectl", "set-hostname", hostname_data.hostname],
-                check=True,
-                capture_output=True
-            )
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            # If hostnamectl fails, just update in database
-            pass
-        
-        return HostnameResponse(hostname=hostname_data.hostname)
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to set hostname: {str(e)}"
-        )
+@router.get("/com-ports")
+def get_com_ports(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
+    """
+    List available COM ports and their usage status.
+    """
+    # Get all available ports
+    ports = serial.tools.list_ports.comports()
+    
+    # Manual detection for non-standard ports (e.g. ttyAS on Rockchip)
+    import glob
+    manual_ports = glob.glob('/dev/ttyAS*') + glob.glob('/dev/ttyAMA*')
+    existing_devices = [p.device for p in ports]
+    
+    for mp in manual_ports:
+        if mp not in existing_devices:
+            # Create a dummy object similar to ListPortInfo
+            class ManualPort:
+                device = mp
+                name = mp.split('/')[-1]
+                description = "Serial Port (Manual Detection)"
+                hwid = "n/a"
+            ports.append(ManualPort())
 
+    result = []
 
-# SSH endpoints
-@router.get("/ssh", response_model=SSHConfig)
-def get_ssh_config(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Get SSH configuration."""
-    enabled = get_setting("ssh_enabled", db, "false") == "true"
-    return SSHConfig(enabled=enabled)
+    # Get all devices using serial ports
+    serial_devices = db.query(Device).filter(Device.type == 'MODBUS_RTU').all()
+    
+    # Create a map of port -> device
+    port_usage = {}
+    for device in serial_devices:
+        if device.connection_params and 'port' in device.connection_params:
+            port_usage[device.connection_params['port']] = device
 
-
-@router.put("/ssh", response_model=SSHConfig)
-def update_ssh_config(
-    ssh_config: SSHConfig,
-    current_user: User = Depends(get_current_superroot),
-    db: Session = Depends(get_db)
-):
-    """Update SSH configuration (superroot only)."""
-    try:
-        # Update in database
-        set_setting("ssh_enabled", "true" if ssh_config.enabled else "false", db)
-        
-        # Try to enable/disable SSH service
-        try:
-            if ssh_config.enabled:
-                subprocess.run(["systemctl", "start", "ssh"], check=True, capture_output=True)
-                subprocess.run(["systemctl", "enable", "ssh"], check=True, capture_output=True)
-            else:
-                subprocess.run(["systemctl", "stop", "ssh"], check=True, capture_output=True)
-                subprocess.run(["systemctl", "disable", "ssh"], check=True, capture_output=True)
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            # If systemctl fails, just update in database
-            pass
-        
-        return SSHConfig(enabled=ssh_config.enabled)
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update SSH config: {str(e)}"
-        )
-
-
-@router.post("/ssh/keys")
-async def upload_ssh_key(
-    file: UploadFile = File(...),
-    current_user: User = Depends(get_current_superroot),
-    db: Session = Depends(get_db)
-):
-    """Upload SSH private key (superroot only)."""
-    try:
-        # Create .ssh directory if it doesn't exist
-        ssh_dir = os.path.expanduser("~/.ssh")
-        os.makedirs(ssh_dir, exist_ok=True)
-        
-        # Save the key file
-        key_path = os.path.join(ssh_dir, file.filename)
-        content = await file.read()
-        
-        with open(key_path, "wb") as f:
-            f.write(content)
-        
-        # Set proper permissions (600)
-        os.chmod(key_path, 0o600)
-        
-        return {
-            "success": True,
-            "message": f"SSH key '{file.filename}' uploaded successfully",
-            "path": key_path
+    for port in ports:
+        port_info = {
+            "device": port.device,
+            "name": port.name,
+            "description": port.description,
+            "hwid": port.hwid,
+            "locked": False,
+            "locked_by": None,
+            "params": None
         }
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to upload SSH key: {str(e)}"
-        )
 
+        # Check if port is in use
+        if port.device in port_usage:
+            device = port_usage[port.device]
+            port_info["locked"] = True
+            port_info["locked_by"] = device.name
+            port_info["params"] = device.connection_params
 
-@router.get("/ssh/keys")
-def list_ssh_keys(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """List SSH keys."""
-    try:
-        ssh_dir = os.path.expanduser("~/.ssh")
-        
-        if not os.path.exists(ssh_dir):
-            return []
-        
-        keys = []
-        for filename in os.listdir(ssh_dir):
-            if filename.endswith((".pub", "")) and not filename.startswith("."):
-                file_path = os.path.join(ssh_dir, filename)
-                if os.path.isfile(file_path):
-                    stat = os.stat(file_path)
-                    keys.append({
-                        "name": filename,
-                        "path": file_path,
-                        "size": stat.st_size,
-                        "modified": stat.st_mtime
-                    })
-        
-        return keys
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list SSH keys: {str(e)}"
-        )
+        result.append(port_info)
 
-
-@router.delete("/ssh/keys/{key_name}")
-def delete_ssh_key(
-    key_name: str,
-    current_user: User = Depends(get_current_superroot),
-    db: Session = Depends(get_db)
-):
-    """Delete an SSH key (superroot only)."""
-    try:
-        ssh_dir = os.path.expanduser("~/.ssh")
-        key_path = os.path.join(ssh_dir, key_name)
-        
-        # Security check: ensure the path is within .ssh directory
-        if not os.path.abspath(key_path).startswith(os.path.abspath(ssh_dir)):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid key name"
-            )
-        
-        if not os.path.exists(key_path):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="SSH key not found"
-            )
-        
-        os.remove(key_path)
-        
-        return {"success": True, "message": f"SSH key '{key_name}' deleted"}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete SSH key: {str(e)}"
-        )
-
-
-# Update settings endpoints
-class UpdateSettingsResponse(BaseModel):
-    auto_update_enabled: bool
-    auto_update_branch: str
-    repo_url: str
-    last_update_check: Optional[str]
-    last_update_status: Optional[str]
-
-
-class UpdateSettingsUpdate(BaseModel):
-    auto_update_enabled: bool
-    auto_update_branch: str
-    repo_url: str
-
-
-class RepositoryInfoResponse(BaseModel):
-    available: bool
-    current_branch: Optional[str] = None
-    current_commit: Optional[str] = None
-    remote_url: Optional[str] = None
-    has_uncommitted_changes: Optional[bool] = None
-    setup_script_exists: Optional[bool] = None
-    message: Optional[str] = None
-
-
-class UpdateCheckResponse(BaseModel):
-    has_updates: bool
-    message: str
-
-
-class UpdateTriggerResponse(BaseModel):
-    success: bool
-    message: str
-
-
-@router.get("/update", response_model=UpdateSettingsResponse)
-def get_update_settings(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Get system update settings."""
-    auto_update = get_setting("auto_update_enabled", db, "false") == "true"
-    branch = get_setting("auto_update_branch", db, "production")
-    repo_url = get_setting("update_repo_url", db, "https://github.com/yourusername/modbus-gate")
-    last_check = get_setting("last_update_check", db, "")
-    last_status = get_setting("last_update_status", db, "")
-    
-    return UpdateSettingsResponse(
-        auto_update_enabled=auto_update,
-        auto_update_branch=branch,
-        repo_url=repo_url,
-        last_update_check=last_check if last_check else None,
-        last_update_status=last_status if last_status else None
-    )
-
-
-@router.put("/update", response_model=UpdateSettingsResponse)
-def update_update_settings(
-    settings: UpdateSettingsUpdate,
-    current_user: User = Depends(get_current_superroot),
-    db: Session = Depends(get_db)
-):
-    """Update system update settings (superroot only)."""
-    set_setting("auto_update_enabled", "true" if settings.auto_update_enabled else "false", db)
-    set_setting("auto_update_branch", settings.auto_update_branch, db)
-    set_setting("update_repo_url", settings.repo_url, db)
-    
-    return UpdateSettingsResponse(
-        auto_update_enabled=settings.auto_update_enabled,
-        auto_update_branch=settings.auto_update_branch,
-        repo_url=settings.repo_url,
-        last_update_check=get_setting("last_update_check", db, ""),
-        last_update_status=get_setting("last_update_status", db, "")
-    )
-
-
-@router.get("/update/repository-info", response_model=RepositoryInfoResponse)
-def get_repository_info(
-    current_user: User = Depends(get_current_user)
-):
-    """Get Git repository information."""
-    from ...services.auto_update_service import auto_update_service
-    
-    info = auto_update_service.get_repository_info()
-    return RepositoryInfoResponse(**info)
-
-
-@router.post("/update/check", response_model=UpdateCheckResponse)
-def check_for_updates(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Check if updates are available."""
-    from ...services.auto_update_service import auto_update_service
-    
-    branch = get_setting("auto_update_branch", db, "production")
-    has_updates, message = auto_update_service.check_for_updates(branch)
-    
-    # Update last check time
-    from datetime import datetime
-    set_setting("last_update_check", datetime.utcnow().isoformat(), db)
-    
-    return UpdateCheckResponse(
-        has_updates=has_updates,
-        message=message
-    )
-
-
-@router.post("/update/trigger", response_model=UpdateTriggerResponse)
-async def trigger_update(
-    current_user: User = Depends(get_current_superroot),
-    db: Session = Depends(get_db)
-):
-    """Trigger a manual system update (superroot only)."""
-    from ...services.auto_update_service import auto_update_service
-    
-    try:
-        branch = get_setting("auto_update_branch", db, "production")
-        
-        # Perform the update
-        success, message = auto_update_service.perform_update(branch, db)
-        
-        return UpdateTriggerResponse(
-            success=success,
-            message=message
-        )
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to trigger update: {str(e)}"
-        )
-        return UpdateTriggerResponse(
-            success=success,
-            message=message
-        )
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to trigger update: {str(e)}"
-        )
-
-
-# Terminal endpoints
-class TerminalConfig(BaseModel):
-    enabled: bool
-
-
-@router.get("/terminal", response_model=TerminalConfig)
-def get_terminal_config(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Get terminal configuration."""
-    enabled = get_setting("terminal_enabled", db, "false") == "true"
-    return TerminalConfig(enabled=enabled)
-
-
-@router.put("/terminal", response_model=TerminalConfig)
-def update_terminal_config(
-    config: TerminalConfig,
-    current_user: User = Depends(get_current_superroot),
-    db: Session = Depends(get_db)
-):
-    """Update terminal configuration (superroot only)."""
-    set_setting("terminal_enabled", "true" if config.enabled else "false", db)
-    return TerminalConfig(enabled=config.enabled)
+    return result

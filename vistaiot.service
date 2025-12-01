@@ -1,0 +1,14 @@
+[Unit]
+Description=VistaIOT Gateway Service
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/root/modbus-gate/backend
+Environment="PATH=/root/modbus-gate/backend/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/root/modbus-gate/backend/start_unified.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

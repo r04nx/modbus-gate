@@ -38,7 +38,7 @@ async def read_tags(skip: int = 0, limit: int = 100, db: Session = Depends(get_d
                 system_tags.append({
                     "id": idx,
                     "tag_id": tag_id,
-                    "name": tag_id.replace("SYS_", "").replace("_", " ").title(),
+                    "name": tag_id.replace("SYS_", "").replace("_", "-").title(),
                     "description": "System Tag",
                     "type": "SYSTEM",
                     "enabled": True,
@@ -104,6 +104,55 @@ def delete_tag(tag_id: int, db: Session = Depends(get_db)):
     db_tag = db.query(models.Tag).filter(models.Tag.id == tag_id).first()
     if not db_tag:
         raise HTTPException(status_code=404, detail="Tag not found")
+    # 1. Check for usage in Calculation Tags
+    calc_tags = db.query(models.Tag).filter(models.Tag.type == "CALCULATION").all()
+    dependent_calcs = []
+    for ct in calc_tags:
+        if ct.calculation_formula and db_tag.tag_id in ct.calculation_formula:
+            dependent_calcs.append(f"{ct.name} ({ct.tag_id})")
+        elif ct.variable_mappings:
+            # Check if tag is used as a variable mapping
+            for var, mapped_tag_id in ct.variable_mappings.items():
+                if mapped_tag_id == db_tag.tag_id:
+                    dependent_calcs.append(f"{ct.name} ({ct.tag_id}) - mapped to {var}")
+                    break
+    
+    if dependent_calcs:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot delete tag '{db_tag.tag_id}' because it is used in the following Calculation Tags: {', '.join(dependent_calcs)}. Please update or delete these calculations first."
+        )
+
+    # 2. Check for usage in Server Configs (Modbus, OPC UA, IEC104)
+    server_configs = db.query(models.ServerConfig).all()
+    dependent_servers = []
+    
+    for sc in server_configs:
+        if not sc.config:
+            continue
+            
+        # Check Mappings
+        mappings = sc.config.get('mappings', [])
+        for m in mappings:
+            if m.get('tag_id') == db_tag.tag_id:
+                dependent_servers.append(f"{sc.type} (Mapping)")
+                break
+        
+        # Check MQTT Publications
+        if sc.type == "MQTT_PUBLISHER":
+            pubs = sc.config.get('publications', [])
+            for p in pubs:
+                if db_tag.tag_id in p.get('tags', []):
+                    dependent_servers.append(f"MQTT Publication '{p.get('topic')}'")
+                    break
+                # Also check payload template if possible, but simple tag list check is primary
+    
+    if dependent_servers:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot delete tag '{db_tag.tag_id}' because it is mapped in the following Server Configurations: {', '.join(dependent_servers)}. Please remove these mappings first."
+        )
+
     db.delete(db_tag)
     db.commit()
     return {"ok": True}
@@ -183,7 +232,7 @@ async def export_tags(type: str, db: Session = Depends(get_db)):
     if type == "IO":
         # Enhanced CSV structure for Modbus IO tags
         fieldnames = [
-            'tag_id', 'name', 'device_name', 'description', 'address', 'data_type',
+            'tag_id', 'description', 'address', 'data_type',
             'register_type', 'byte_order', 'start_bit', 'bit_length', 
             'span_low', 'span_high', 'soe',
             'fallback_type', 'fallback_value'
@@ -194,8 +243,6 @@ async def export_tags(type: str, db: Session = Depends(get_db)):
             params = tag.params or {}
             writer.writerow({
                 'tag_id': tag.tag_id,
-                'name': tag.name,
-                'device_name': devices_map.get(tag.device_id, 'Unknown'),
                 'description': tag.description or '',
                 'address': tag.address or '',
                 'data_type': tag.data_type or '',
@@ -252,6 +299,8 @@ async def import_tags(type: str, file: UploadFile = File(...), db: Session = Dep
     if type not in ["IO", "CALCULATION", "USER"]:
         raise HTTPException(status_code=400, detail="Invalid type. Must be IO, CALCULATION, or USER")
     
+    from sqlalchemy.exc import IntegrityError
+    
     # Read file content
     content = await file.read()
     decoded = content.decode('utf-8')
@@ -260,6 +309,7 @@ async def import_tags(type: str, file: UploadFile = File(...), db: Session = Dep
     created_count = 0
     updated_count = 0
     errors = []
+    seen_tag_ids = set()
     
     # Pre-fetch devices for IO tags lookup
     devices_map = {}
@@ -274,13 +324,25 @@ async def import_tags(type: str, file: UploadFile = File(...), db: Session = Dep
 
     for row_num, row in enumerate(csv_reader, start=2):  # Start at 2 (1 is header)
         try:
-            name = row.get('name')
-            if not name:
-                errors.append(f"Row {row_num}: Name is required")
-                continue
-
-            # Determine tag_id
             tag_id = row.get('tag_id')
+            name = row.get('name')
+            
+            # Smart Extraction from Tag ID for IO tags
+            extracted_device_name = None
+            if tag_id and ':' in tag_id:
+                parts = tag_id.split(':', 1)
+                extracted_device_name = parts[0]
+                if not name:
+                    name = parts[1]
+            
+            if not name:
+                if tag_id:
+                     # Fallback if no colon: use tag_id as name
+                     name = tag_id
+                else:
+                    errors.append(f"Row {row_num}: Name or Tag ID is required")
+                    continue
+
             if not tag_id or tag_id.strip() == '':
                 tag_id = generate_tag_id(name)
                 # Ensure uniqueness for new tags if auto-generated
@@ -290,6 +352,12 @@ async def import_tags(type: str, file: UploadFile = File(...), db: Session = Dep
                     tag_id = f"{original_gen_id}_{counter}"
                     counter += 1
             
+            # Check for duplicates within the CSV itself
+            if tag_id in seen_tag_ids:
+                errors.append(f"Row {row_num}: Duplicate tag_id '{tag_id}' found in CSV file.")
+                continue
+            seen_tag_ids.add(tag_id)
+
             # Check if tag exists
             existing_tag = db.query(models.Tag).filter(models.Tag.tag_id == tag_id).first()
             
@@ -304,8 +372,11 @@ async def import_tags(type: str, file: UploadFile = File(...), db: Session = Dep
             
             if type == "IO":
                 device_name = row.get('device_name')
+                if not device_name and extracted_device_name:
+                    device_name = extracted_device_name
+                
                 if not device_name:
-                    errors.append(f"Row {row_num}: Device Name is required for IO tags")
+                    errors.append(f"Row {row_num}: Device Name is required (column or in Tag ID 'Device:Tag')")
                     continue
                 
                 device_id = devices_map.get(device_name)
@@ -356,7 +427,14 @@ async def import_tags(type: str, file: UploadFile = File(...), db: Session = Dep
         except Exception as e:
             errors.append(f"Row {row_num}: {str(e)}")
     
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as e:
+        db.rollback()
+        errors.append(f"Database Integrity Error: {str(e.orig)}")
+    except Exception as e:
+        db.rollback()
+        errors.append(f"Database Error: {str(e)}")
     
     return {
         "created": created_count,
