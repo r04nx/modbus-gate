@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Server, Upload, Trash2, RefreshCw, GitBranch, Download, CheckCircle, AlertCircle, Terminal, X, Info } from 'lucide-react';
-import axios from 'axios';
-import { exportConfiguration, importConfiguration } from '../../services/api';
+import api from '../../services/api';
 
 const SystemSettings = () => {
     const [hostname, setHostname] = useState('');
@@ -18,41 +17,6 @@ const SystemSettings = () => {
     const [updating, setUpdating] = useState(false);
     const [terminalEnabled, setTerminalEnabled] = useState(false);
 
-    // Configuration Export/Import states
-    const [showExportModal, setShowExportModal] = useState(false);
-    const [showImportModal, setShowImportModal] = useState(false);
-    const [exportOptions, setExportOptions] = useState({
-        include_devices: true,
-        include_tags: true,
-        include_servers: true,
-        include_storage_policy: true,
-        include_system_settings: true,
-        include_users: true,
-        include_ssh_keys: true,
-        include_network: true,
-        include_hostname: true
-    });
-    const [importOptions, setImportOptions] = useState({
-        import_devices: true,
-        import_tags: true,
-        import_servers: true,
-        import_storage_policy: true,
-        import_system_settings: true,
-        import_ssh_keys: true,
-        import_network: true,
-        import_hostname: true,
-        overwrite: false
-    });
-    const [importFile, setImportFile] = useState(null);
-    const [importPreview, setImportPreview] = useState(null);
-    const [importWarnings, setImportWarnings] = useState([]);
-
-    // Use dynamic API base URL instead of hardcoded localhost
-    const API_HOST = window.location.hostname;
-    const API_PORT = '8000';
-    const API_BASE = `http://${API_HOST}:${API_PORT}/api/v1`;
-    const getAuthHeader = () => ({ Authorization: `Basic ${btoa('admin:admin')}` });
-
     useEffect(() => {
         fetchSettings();
         fetchRepoInfo();
@@ -61,29 +25,30 @@ const SystemSettings = () => {
     const fetchSettings = async () => {
         try {
             const [hostnameRes, sshRes, updateRes, keysRes, terminalRes] = await Promise.all([
-                axios.get(`${API_BASE}/system/hostname`, { headers: getAuthHeader() }),
-                axios.get(`${API_BASE}/system/ssh`, { headers: getAuthHeader() }),
-                axios.get(`${API_BASE}/system/update`, { headers: getAuthHeader() }),
-                axios.get(`${API_BASE}/system/ssh/keys`, { headers: getAuthHeader() }),
-                axios.get(`${API_BASE}/system/terminal`, { headers: getAuthHeader() })
+                api.get('/system/hostname'),
+                api.get('/system/ssh'),
+                api.get('/system/update'),
+                api.get('/system/ssh/keys'),
+                api.get('/system/terminal')
             ]);
-            setHostname(hostnameRes.data.hostname);
-            setSshEnabled(sshRes.data.enabled);
-            setAutoUpdate(updateRes.data.auto_update_enabled);
+            setHostname(hostnameRes.data.hostname || '');
+            setSshEnabled(sshRes.data.enabled || false);
+            setAutoUpdate(updateRes.data.auto_update_enabled || false);
             setAutoBranch(updateRes.data.auto_update_branch || 'production');
-            setRepoUrl(updateRes.data.repo_url);
+            setRepoUrl(updateRes.data.repo_url || '');
             setLastUpdateCheck(updateRes.data.last_update_check);
             setLastUpdateStatus(updateRes.data.last_update_status);
-            setSshKeys(keysRes.data);
-            setTerminalEnabled(terminalRes.data.enabled);
+            setSshKeys(Array.isArray(keysRes.data) ? keysRes.data : []);
+            setTerminalEnabled(terminalRes.data.enabled || false);
         } catch (error) {
             console.error('Failed to fetch settings:', error);
+            setSshKeys([]);
         }
     };
 
     const fetchRepoInfo = async () => {
         try {
-            const res = await axios.get(`${API_BASE}/system/update/repository-info`, { headers: getAuthHeader() });
+            const res = await api.get('/system/update/repository-info');
             setRepoInfo(res.data);
         } catch (error) {
             console.error('Failed to fetch repo info:', error);
@@ -93,7 +58,7 @@ const SystemSettings = () => {
     const handleCheckForUpdates = async () => {
         try {
             setLoading(true);
-            const res = await axios.post(`${API_BASE}/system/update/check`, {}, { headers: getAuthHeader() });
+            const res = await api.post('/system/update/check');
             setUpdateCheckResult(res.data);
             fetchSettings(); // Refresh to get updated last_check time
         } catch (error) {
@@ -108,7 +73,7 @@ const SystemSettings = () => {
 
         try {
             setUpdating(true);
-            const res = await axios.post(`${API_BASE}/system/update/trigger`, {}, { headers: getAuthHeader() });
+            const res = await api.post('/system/update/trigger');
 
             if (res.data.success) {
                 alert('Update completed successfully!\n\n' + res.data.message);
@@ -128,7 +93,7 @@ const SystemSettings = () => {
     const handleSaveHostname = async () => {
         try {
             setLoading(true);
-            await axios.put(`${API_BASE}/system/hostname`, { hostname }, { headers: getAuthHeader() });
+            await api.put('/system/hostname', { hostname });
             alert('Hostname updated successfully');
         } catch (error) {
             alert(`Failed to update hostname: ${error.response?.data?.detail || error.message}`);
@@ -140,7 +105,7 @@ const SystemSettings = () => {
     const handleToggleSSH = async () => {
         try {
             setLoading(true);
-            await axios.put(`${API_BASE}/system/ssh`, { enabled: !sshEnabled }, { headers: getAuthHeader() });
+            await api.put('/system/ssh', { enabled: !sshEnabled });
             setSshEnabled(!sshEnabled);
         } catch (error) {
             alert(`Failed to toggle SSH: ${error.response?.data?.detail || error.message}`);
@@ -158,7 +123,9 @@ const SystemSettings = () => {
 
         try {
             setLoading(true);
-            await axios.post(`${API_BASE}/system/ssh/keys`, formData, { headers: getAuthHeader() });
+            await api.post('/system/ssh/keys', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
             fetchSettings();
             alert('SSH key uploaded successfully');
         } catch (error) {
@@ -171,7 +138,7 @@ const SystemSettings = () => {
     const handleDeleteKey = async (keyName) => {
         if (!confirm(`Delete SSH key "${keyName}"?`)) return;
         try {
-            await axios.delete(`${API_BASE}/system/ssh/keys/${keyName}`, { headers: getAuthHeader() });
+            await api.delete(`/system/ssh/keys/${keyName}`);
             fetchSettings();
         } catch (error) {
             alert(`Failed to delete key: ${error.response?.data?.detail || error.message}`);
@@ -181,11 +148,11 @@ const SystemSettings = () => {
     const handleSaveUpdate = async () => {
         try {
             setLoading(true);
-            await axios.put(`${API_BASE}/system/update`, {
+            await api.put('/system/update', {
                 auto_update_enabled: autoUpdate,
                 auto_update_branch: autoBranch,
                 repo_url: repoUrl
-            }, { headers: getAuthHeader() });
+            });
             alert('Update settings saved');
             fetchSettings();
         } catch (error) {
@@ -198,7 +165,7 @@ const SystemSettings = () => {
     const handleToggleTerminal = async () => {
         try {
             setLoading(true);
-            await axios.put(`${API_BASE}/system/terminal`, { enabled: !terminalEnabled }, { headers: getAuthHeader() });
+            await api.put('/system/terminal', { enabled: !terminalEnabled });
             setTerminalEnabled(!terminalEnabled);
             alert('Terminal setting updated. Please refresh the page to see changes in navigation.');
         } catch (error) {

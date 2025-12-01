@@ -7,17 +7,32 @@ import SystemSettings from '../components/settings/SystemSettings';
 import DataStoragePolicy from '../components/settings/DataStoragePolicy';
 import BufferingConfiguration from '../components/settings/BufferingConfiguration';
 
+import { getCurrentUser } from '../services/api';
+
 const Settings = () => {
     const [activeTab, setActiveTab] = useState('config');
+    const [userRole, setUserRole] = useState(null);
+
+    React.useEffect(() => {
+        const fetchUser = async () => {
+            try {
+                const response = await getCurrentUser();
+                setUserRole(response.data.role);
+            } catch (error) {
+                console.error('Failed to fetch user role:', error);
+            }
+        };
+        fetchUser();
+    }, []);
 
     const tabs = [
         { id: 'config', label: 'Configuration', icon: Database, color: 'text-blue-400' },
-        { id: 'users', label: 'Users', icon: Users, color: 'text-cyan-400' },
+        { id: 'users', label: 'Users', icon: Users, color: 'text-cyan-400', hidden: userRole !== 'superroot' },
         { id: 'network', label: 'Network', icon: Network, color: 'text-purple-400' },
         { id: 'system', label: 'System', icon: Server, color: 'text-emerald-400' },
         { id: 'storage', label: 'Storage Policy', icon: HardDrive, color: 'text-orange-400' },
         { id: 'buffering', label: 'Local Buffering', icon: Database, color: 'text-pink-400' },
-    ];
+    ].filter(tab => !tab.hidden);
 
     return (
         <div className="p-6 space-y-6">
@@ -55,7 +70,7 @@ const Settings = () => {
             {/* Tab Content */}
             <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                 {activeTab === 'config' && <ConfigurationManagement />}
-                {activeTab === 'users' && <UserManagement />}
+                {activeTab === 'users' && userRole === 'superroot' && <UserManagement />}
                 {activeTab === 'network' && <NetworkConfiguration />}
                 {activeTab === 'system' && <SystemSettings />}
                 {activeTab === 'storage' && <DataStoragePolicy />}

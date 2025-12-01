@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, Server, Tag, Settings, Activity, FileText, Network, Terminal, Download, Database, LogOut } from 'lucide-react';
 import clsx from 'clsx';
-import axios from 'axios';
+import api from '../services/api';
 
 const Layout = ({ children }) => {
     const location = useLocation();
@@ -17,14 +17,7 @@ const Layout = ({ children }) => {
     useEffect(() => {
         const checkTerminal = async () => {
             try {
-                const API_HOST = window.location.hostname;
-                const API_PORT = '8000';
-                const API_BASE = `http://${API_HOST}:${API_PORT}/api/v1`;
-                // Simple auth header if needed, though GET might be public or we rely on cookie/basic auth default
-                // SystemSettings uses Basic auth admin:admin. We should probably use it here too.
-                const getAuthHeader = () => ({ Authorization: `Basic ${btoa('admin:admin')}` });
-
-                const res = await axios.get(`${API_BASE}/system/terminal`, { headers: getAuthHeader() });
+                const res = await api.get('/system/terminal');
                 setTerminalEnabled(res.data.enabled);
             } catch (e) {
                 console.error("Failed to check terminal status", e);
@@ -39,12 +32,7 @@ const Layout = ({ children }) => {
     useEffect(() => {
         const checkSystem = async () => {
             try {
-                const API_HOST = window.location.hostname;
-                const API_PORT = '8000';
-                const API_BASE = `http://${API_HOST}:${API_PORT}/api/v1`;
-                const getAuthHeader = () => ({ Authorization: `Basic ${btoa('admin:admin')}` });
-
-                await axios.get(`${API_BASE}/system/hostname`, { headers: getAuthHeader(), timeout: 5000 });
+                await api.get('/system/hostname', { timeout: 5000 });
                 setSystemStatus('online');
                 setSystemError(null);
             } catch (e) {

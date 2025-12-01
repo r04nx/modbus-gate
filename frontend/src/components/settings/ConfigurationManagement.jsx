@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Download, Upload, Trash2, AlertTriangle, CheckCircle, XCircle, X, Info } from 'lucide-react';
-import axios from 'axios';
-import { exportConfiguration, importConfiguration } from '../../services/api';
+import api, { exportConfiguration, importConfiguration } from '../../services/api';
 
 // Export Card Component with Modal
 const ExportCard = () => {
@@ -300,8 +299,8 @@ const ImportCard = () => {
                                 <div
                                     key={index}
                                     className={`p-4 rounded-xl border ${warning.severity === 'critical' ? 'bg-error/10 border-error/30' :
-                                            warning.severity === 'warning' ? 'bg-warning/10 border-warning/30' :
-                                                'bg-info/10 border-info/30'
+                                        warning.severity === 'warning' ? 'bg-warning/10 border-warning/30' :
+                                            'bg-info/10 border-info/30'
                                         }`}
                                 >
                                     <div className="flex items-start gap-3">
@@ -346,42 +345,23 @@ const ConfigurationManagement = () => {
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState(null);
 
-    // Use dynamic API base URL instead of hardcoded localhost
-    const API_HOST = window.location.hostname;
-    const API_PORT = '8000';
-    const API_BASE = `http://${API_HOST}:${API_PORT}/api/v1`;
-
-    // Get auth header (Basic Auth)
-    const getAuthHeader = () => {
-        // For now, using default admin credentials
-        // In production, this should come from a login system
-        const credentials = btoa('admin:admin');
-        return { Authorization: `Basic ${credentials}` };
-    };
-
     const handleDelete = async () => {
         try {
             setLoading(true);
             const results = [];
 
             if (deleteOptions.delete_tags) {
-                const res = await axios.delete(`${API_BASE}/config/tags`, {
-                    headers: getAuthHeader(),
-                });
+                const res = await api.delete('/config/tags');
                 results.push(res.data.message);
             }
 
             if (deleteOptions.delete_devices) {
-                const res = await axios.delete(`${API_BASE}/config/devices`, {
-                    headers: getAuthHeader(),
-                });
+                const res = await api.delete('/config/devices');
                 results.push(res.data.message);
             }
 
             if (deleteOptions.delete_servers) {
-                const res = await axios.delete(`${API_BASE}/config/servers`, {
-                    headers: getAuthHeader(),
-                });
+                const res = await api.delete('/config/servers');
                 results.push(res.data.message);
             }
 
@@ -397,9 +377,7 @@ const ConfigurationManagement = () => {
     const handleFactoryReset = async () => {
         try {
             setLoading(true);
-            const response = await axios.post(`${API_BASE}/config/factory-reset`, {}, {
-                headers: getAuthHeader(),
-            });
+            const response = await api.post('/config/factory-reset');
 
             setMessage({ type: 'success', text: 'Factory reset completed successfully' });
             setShowFactoryResetConfirm(false);

@@ -1,7 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { Users, Plus, Trash2, Key, Activity } from 'lucide-react';
-import axios from 'axios';
+import {
+    getUsers,
+    createUser,
+    deleteUser,
+    resetPassword,
+    getActiveSessions,
+    terminateSession
+} from '../../services/api';
 import { TableSkeleton } from '../common/Skeleton';
+import { useToast } from '../../contexts/ToastContext';
 
 const UserManagement = () => {
     const [users, setUsers] = useState([]);
@@ -12,12 +20,7 @@ const UserManagement = () => {
     const [formData, setFormData] = useState({ username: '', password: '', role: 'root' });
     const [loading, setLoading] = useState(false);
     const [initialLoading, setInitialLoading] = useState(true);
-
-    // Use dynamic API base URL instead of hardcoded localhost
-    const API_HOST = window.location.hostname;
-    const API_PORT = '8000';
-    const API_BASE = `http://${API_HOST}:${API_PORT}/api/v1`;
-    const getAuthHeader = () => ({ Authorization: `Basic ${btoa('admin:admin')}` });
+    const toast = useToast();
 
     useEffect(() => {
         const loadData = async () => {
@@ -30,31 +33,35 @@ const UserManagement = () => {
 
     const fetchUsers = async () => {
         try {
-            const res = await axios.get(`${API_BASE}/users/`, { headers: getAuthHeader() });
-            setUsers(res.data);
+            const res = await getUsers();
+            setUsers(Array.isArray(res.data) ? res.data : []);
         } catch (error) {
             console.error('Failed to fetch users:', error);
+            setUsers([]);
         }
     };
 
     const fetchSessions = async () => {
         try {
-            const res = await axios.get(`${API_BASE}/users/sessions/active`, { headers: getAuthHeader() });
-            setSessions(res.data);
+            const res = await getActiveSessions();
+            setSessions(Array.isArray(res.data) ? res.data : []);
         } catch (error) {
             console.error('Failed to fetch sessions:', error);
+            setSessions([]);
         }
     };
 
     const handleCreateUser = async () => {
         try {
             setLoading(true);
-            await axios.post(`${API_BASE}/users/`, formData, { headers: getAuthHeader() });
+            await createUser(formData);
             setShowCreateModal(false);
             setFormData({ username: '', password: '', role: 'root' });
             fetchUsers();
+            toast?.success('User created successfully');
         } catch (error) {
-            alert(`Failed to create user: ${error.response?.data?.detail || error.message}`);
+            // Error handled by interceptor usually, but we can show specific alert if needed
+            console.error(error);
         } finally {
             setLoading(false);
         }
@@ -63,26 +70,23 @@ const UserManagement = () => {
     const handleDeleteUser = async (userId) => {
         if (!confirm('Are you sure you want to delete this user?')) return;
         try {
-            await axios.delete(`${API_BASE}/users/${userId}`, { headers: getAuthHeader() });
+            await deleteUser(userId);
             fetchUsers();
+            toast?.success('User deleted successfully');
         } catch (error) {
-            alert(`Failed to delete user: ${error.response?.data?.detail || error.message}`);
+            console.error(error);
         }
     };
 
     const handleResetPassword = async () => {
         try {
             setLoading(true);
-            await axios.post(
-                `${API_BASE}/users/${selectedUser.id}/reset-password`,
-                { new_password: formData.password },
-                { headers: getAuthHeader() }
-            );
+            await resetPassword(selectedUser.id, formData.password);
             setShowResetModal(false);
             setFormData({ username: '', password: '', role: 'root' });
-            alert('Password reset successfully');
+            toast?.success('Password reset successfully');
         } catch (error) {
-            alert(`Failed to reset password: ${error.response?.data?.detail || error.message}`);
+            console.error(error);
         } finally {
             setLoading(false);
         }
@@ -91,10 +95,11 @@ const UserManagement = () => {
     const handleTerminateSession = async (sessionId) => {
         if (!confirm('Terminate this session?')) return;
         try {
-            await axios.delete(`${API_BASE}/users/sessions/${sessionId}`, { headers: getAuthHeader() });
+            await terminateSession(sessionId);
             fetchSessions();
+            toast?.success('Session terminated successfully');
         } catch (error) {
-            alert(`Failed to terminate session: ${error.response?.data?.detail || error.message}`);
+            console.error(error);
         }
     };
 

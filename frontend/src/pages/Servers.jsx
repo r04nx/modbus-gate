@@ -1,16 +1,12 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Save, Server, Activity, Settings, RefreshCw, CheckCircle, XCircle, Plus, Trash2, Search, AlertTriangle, Edit2, ChevronRight, ChevronDown, Database, Network, Wifi, Gauge, Tag, Calculator, BarChart3, User, Wand2, Copy, Upload } from 'lucide-react';
-import axios from 'axios';
 import clsx from 'clsx';
+import api, { getTags, listCertificates, getDevices } from '../services/api';
 import { TableSkeleton, FormSkeleton, Skeleton } from '../components/common/Skeleton';
 import TagMappingSelector from '../components/TagMappingSelector';
 import JsonEditor from '../components/JsonEditor';
 import CertificateUpload from '../components/CertificateUpload';
-import { getTags, listCertificates, getDevices } from '../services/api';
-
-// Use relative URL or window.location to avoid hardcoded localhost
-const API_URL = `http://${window.location.hostname}:8000/api/v1`;
 
 // Helper to determine data size in registers
 const getDataSize = (dataType) => {
@@ -134,7 +130,7 @@ export default function Servers() {
     const fetchConfig = async (type) => {
         setLoading(true);
         try {
-            const response = await axios.get(`${API_URL}/servers/${type}`);
+            const response = await api.get(`/servers/${type}`);
             const data = response.data;
             // Ensure config object exists
             if (!data.config) data.config = {};
@@ -162,7 +158,7 @@ export default function Servers() {
     const handleSave = async () => {
         setSaving(true);
         try {
-            await axios.put(`${API_URL}/servers/${activeTab}`, config);
+            await api.put(`/servers/${activeTab}`, config);
             setInitialConfig(JSON.parse(JSON.stringify(config))); // Update initial config to match saved
             alert('Configuration saved successfully!');
             setExpandedItems({}); // Collapse all items after save

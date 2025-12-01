@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { HardDrive, Database, Download, Trash2, FileText } from 'lucide-react';
-import axios from 'axios';
+import api from '../../services/api';
 
 const DataStoragePolicy = () => {
     const [policy, setPolicy] = useState({
@@ -15,12 +15,6 @@ const DataStoragePolicy = () => {
     const [bufferedFiles, setBufferedFiles] = useState([]);
     const [loading, setLoading] = useState(false);
 
-    // Use dynamic API base URL instead of hardcoded localhost
-    const API_HOST = window.location.hostname;
-    const API_PORT = '8000';
-    const API_BASE = `http://${API_HOST}:${API_PORT}/api/v1`;
-    const getAuthHeader = () => ({ Authorization: `Basic ${btoa('admin:admin')}` });
-
     useEffect(() => {
         fetchPolicy();
         fetchUsage();
@@ -29,7 +23,7 @@ const DataStoragePolicy = () => {
 
     const fetchPolicy = async () => {
         try {
-            const res = await axios.get(`${API_BASE}/storage/policy`, { headers: getAuthHeader() });
+            const res = await api.get('/storage/policy');
             setPolicy(res.data);
         } catch (error) {
             console.error('Failed to fetch policy:', error);
@@ -38,7 +32,7 @@ const DataStoragePolicy = () => {
 
     const fetchUsage = async () => {
         try {
-            const res = await axios.get(`${API_BASE}/storage/usage`, { headers: getAuthHeader() });
+            const res = await api.get('/storage/usage');
             setUsage(res.data);
         } catch (error) {
             console.error('Failed to fetch usage:', error);
@@ -48,7 +42,7 @@ const DataStoragePolicy = () => {
     const handleSave = async () => {
         try {
             setLoading(true);
-            await axios.put(`${API_BASE}/storage/policy`, policy, { headers: getAuthHeader() });
+            await api.put('/storage/policy', policy);
             alert('Storage policy updated successfully');
         } catch (error) {
             alert(`Failed to update policy: ${error.response?.data?.detail || error.message}`);
@@ -67,7 +61,7 @@ const DataStoragePolicy = () => {
 
     const fetchBufferedFiles = async () => {
         try {
-            const res = await axios.get(`${API_BASE}/storage/buffered-files`, { headers: getAuthHeader() });
+            const res = await api.get('/storage/buffered-files');
             setBufferedFiles(res.data);
         } catch (error) {
             console.error('Failed to fetch buffered files:', error);
@@ -76,10 +70,9 @@ const DataStoragePolicy = () => {
 
     const handleDownloadFile = async (filename) => {
         try {
-            const response = await axios.get(
-                `${API_BASE}/storage/buffered-files/${filename}`,
+            const response = await api.get(
+                `/storage/buffered-files/${filename}`,
                 {
-                    headers: getAuthHeader(),
                     responseType: 'blob'
                 }
             );
@@ -101,7 +94,7 @@ const DataStoragePolicy = () => {
         if (!confirm(`Delete buffered file "${filename}"?`)) return;
 
         try {
-            await axios.delete(`${API_BASE}/storage/buffered-files/${filename}`, { headers: getAuthHeader() });
+            await api.delete(`/storage/buffered-files/${filename}`);
             fetchBufferedFiles(); // Refresh list
         } catch (error) {
             alert(`Failed to delete file: ${error.response?.data?.detail || error.message}`);

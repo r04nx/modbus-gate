@@ -34,17 +34,10 @@ cp vistaiot.service deploy_pkg/
 cp start_unified.sh deploy_pkg/backend/
 chmod +x deploy_pkg/backend/start_unified.sh
 
-# Compile to PYC (Optional, but requested)
+# Compile to PYC (Simple compilation)
 echo "🔨 Compiling to PYC..."
 python3 -m compileall deploy_pkg/backend/app
 python3 -m compileall deploy_pkg/backend/main.py
-
-# Remove __pycache__ from source (we want clean pyc or just source, compileall creates __pycache__)
-# Actually, user asked to "build it... into pyc". 
-# Usually python runs from source or pyc. 
-# Let's just ensure we send the source and let python compile it on run or pre-compile.
-# The user said "build it... into pyc etc with all dependencies".
-# We will send source, and maybe run compileall on remote to verify.
 
 # 3. Deploy to Remote
 echo "🚚 Transferring files to $REMOTE_HOST..."

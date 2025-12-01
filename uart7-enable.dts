@@ -1,0 +1,13 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+    compatible = "allwinner,sun55iw3";
+    
+    fragment@0 {
+        target-path = "/soc@3000000/uart@2501c00";
+        __overlay__ {
+            status = "okay";
+        };
+    };
+};

@@ -133,5 +133,17 @@ export const exportBufferedData = (params) => api.get('/buffering/export', { par
 export const clearBufferedData = () => api.delete('/buffering/data');
 export const getBufferedTags = () => api.get('/buffering/tags');
 
+// User Management
+export const getCurrentUser = () => api.get('/users/me');
+export const getUsers = () => api.get('/users/');
+export const createUser = (user) => api.post('/users/', user);
+export const updateUser = (id, user) => api.put(`/users/${id}`, user);
+export const deleteUser = (id) => api.delete(`/users/${id}`);
+export const resetPassword = (id, newPassword) => api.post(`/users/${id}/reset-password`, { new_password: newPassword });
+
+// Session Management
+export const getActiveSessions = () => api.get('/users/sessions/active');
+export const terminateSession = (sessionId) => api.delete(`/users/sessions/${sessionId}`);
+
 export default api;
 

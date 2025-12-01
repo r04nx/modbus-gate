@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Network, Wifi, WifiOff } from 'lucide-react';
-import axios from 'axios';
 import clsx from 'clsx';
+import api from '../../services/api';
 
 const NetworkConfiguration = () => {
     const [interfaces, setInterfaces] = useState([]);
@@ -10,12 +10,6 @@ const NetworkConfiguration = () => {
     const [connectivity, setConnectivity] = useState(null);
     const [loading, setLoading] = useState(false);
 
-    // Use dynamic API base URL instead of hardcoded localhost
-    const API_HOST = window.location.hostname;
-    const API_PORT = '8000';
-    const API_BASE = `http://${API_HOST}:${API_PORT}/api/v1`;
-    const getAuthHeader = () => ({ Authorization: `Basic ${btoa('admin:admin')}` });
-
     useEffect(() => {
         fetchInterfaces();
         testConnectivity();
@@ -23,7 +17,7 @@ const NetworkConfiguration = () => {
 
     const fetchInterfaces = async () => {
         try {
-            const res = await axios.get(`${API_BASE}/network/interfaces`, { headers: getAuthHeader() });
+            const res = await api.get('/network/interfaces');
             setInterfaces(res.data);
             if (res.data.length > 0) {
                 setSelectedInterface(res.data[0].name);
@@ -41,7 +35,7 @@ const NetworkConfiguration = () => {
 
     const testConnectivity = async () => {
         try {
-            const res = await axios.get(`${API_BASE}/network/connectivity/test`, { headers: getAuthHeader() });
+            const res = await api.get('/network/connectivity/test');
             setConnectivity(res.data);
         } catch (error) {
             console.error('Failed to test connectivity:', error);
@@ -64,7 +58,7 @@ const NetworkConfiguration = () => {
     const handleSave = async () => {
         try {
             setLoading(true);
-            await axios.put(`${API_BASE}/network/${selectedInterface}`, config, { headers: getAuthHeader() });
+            await api.put(`/network/${selectedInterface}`, config);
             alert('Network configuration updated successfully');
             fetchInterfaces();
         } catch (error) {
