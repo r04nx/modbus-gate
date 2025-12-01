@@ -1,9 +1,30 @@
-import React, { useState } from 'react';
-import { X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Lock, AlertCircle } from 'lucide-react';
+import { getComPorts } from '../services/api';
+
+// Helper function to convert device path to friendly COM port name
+const getPortDisplayName = (devicePath) => {
+    if (!devicePath) return '';
+
+    // Extract port number from common patterns
+    // /dev/ttyUSB0 -> COM 1, /dev/ttyUSB1 -> COM 2
+    // /dev/ttyAS0 -> COM 1, /dev/ttyAS1 -> COM 2
+    // /dev/ttyS0 -> COM 1, /dev/ttyS1 -> COM 2
+    const match = devicePath.match(/tty(?:USB|AS|S|ACM)(\d+)/);
+    if (match) {
+        const portNum = parseInt(match[1]) + 1; // 0-indexed to 1-indexed
+        return `COM ${portNum}`;
+    }
+
+    // Fallback to showing the device name
+    return devicePath.split('/').pop();
+};
 
 const DeviceForm = ({ onClose, onSubmit, editDevice = null }) => {
     const isEditMode = !!editDevice;
     const [type, setType] = useState(editDevice?.type || 'MODBUS_TCP');
+    const [availablePorts, setAvailablePorts] = useState([]);
+    const [lockedPort, setLockedPort] = useState(null);
     const [formData, setFormData] = useState({
         name: editDevice?.name || '',
         description: editDevice?.description || '',
@@ -12,6 +33,17 @@ const DeviceForm = ({ onClose, onSubmit, editDevice = null }) => {
             host: '127.0.0.1',
             port: 502,
             slave_id: 1,
+            // Modbus RTU defaults
+            baudrate: 9600,
+            databits: 8,
+            stopbits: 1,
+            parity: 'N',
+            rts: false,
+            dtr: false,
+            scan_time: 1000,
+            timeout: 1000,
+            retry_count: 3,
+            auto_recover_time: 60,
             // OPC UA
             url: 'opc.tcp://localhost:4840',
             // SNMP
@@ -19,16 +51,63 @@ const DeviceForm = ({ onClose, onSubmit, editDevice = null }) => {
         }
     });
 
+    useEffect(() => {
+        if (type === 'MODBUS_RTU') {
+            fetchPorts();
+        }
+    }, [type]);
+
+    const fetchPorts = async () => {
+        try {
+            const { data } = await getComPorts();
+            setAvailablePorts(data);
+            // Check if current port is locked
+            if (formData.connection_params.port) {
+                const portInfo = data.find(p => p.device === formData.connection_params.port);
+                if (portInfo && portInfo.locked && portInfo.locked_by !== editDevice?.name) {
+                    setLockedPort(portInfo);
+                } else {
+                    setLockedPort(null);
+                }
+            }
+        } catch (error) {
+            console.error("Failed to fetch COM ports", error);
+        }
+    };
+
     const handleChange = (e) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
     const handleParamChange = (e) => {
-        const { name, value } = e.target;
+        const { name, value, type: inputType, checked } = e.target;
+        const val = inputType === 'checkbox' ? checked : value;
+
+        // If changing port, check for lock
+        if (name === 'port') {
+            const portInfo = availablePorts.find(p => p.device === value);
+            if (portInfo && portInfo.locked && portInfo.locked_by !== editDevice?.name) {
+                setLockedPort(portInfo);
+                // Inherit settings
+                setFormData(prev => ({
+                    ...prev,
+                    connection_params: { ...prev.connection_params, port: value, ...portInfo.params }
+                }));
+                return;
+            } else {
+                setLockedPort(null);
+            }
+        }
+
+        if (lockedPort && name !== 'port' && name !== 'slave_id') {
+            // Prevent editing locked parameters
+            return;
+        }
+
         setFormData(prev => ({
             ...prev,
-            connection_params: { ...prev.connection_params, [name]: value }
+            connection_params: { ...prev.connection_params, [name]: val }
         }));
     };
 
@@ -44,8 +123,18 @@ const DeviceForm = ({ onClose, onSubmit, editDevice = null }) => {
         } else if (newType === 'MODBUS_RTU') {
             setFormData(prev => ({
                 ...prev,
-                connection_params: { port: '/dev/ttyUSB0', baudrate: 9600, slave_id: 1 }
+                connection_params: {
+                    port: '',
+                    baudrate: 9600,
+                    slave_id: 1,
+                    databits: 8,
+                    stopbits: 1,
+                    parity: 'N',
+                    rts: false,
+                    dtr: false
+                }
             }));
+            fetchPorts();
         } else if (newType === 'OPC_UA') {
             setFormData(prev => ({
                 ...prev,
@@ -66,6 +155,11 @@ const DeviceForm = ({ onClose, onSubmit, editDevice = null }) => {
 
     const handleSubmit = (e) => {
         e.preventDefault();
+        // Validation
+        if (/\s|:/.test(formData.name)) {
+            alert("Device Name must not contain spaces or colons.");
+            return;
+        }
         onSubmit({ ...formData, type });
     };
 
@@ -152,14 +246,34 @@ const DeviceForm = ({ onClose, onSubmit, editDevice = null }) => {
                             <>
                                 <div>
                                     <label className="block text-sm font-medium text-text-secondary mb-2">Serial Port</label>
-                                    <input
-                                        name="port"
-                                        value={formData.connection_params.port}
-                                        onChange={handleParamChange}
-                                        className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
-                                        placeholder="/dev/ttyUSB0"
-                                    />
+                                    <div className="relative">
+                                        <select
+                                            name="port"
+                                            value={formData.connection_params.port}
+                                            onChange={handleParamChange}
+                                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary transition-colors appearance-none"
+                                        >
+                                            <option value="">Select Port</option>
+                                            {availablePorts.map(p => (
+                                                <option key={p.device} value={p.device}>
+                                                    {getPortDisplayName(p.device)} {p.locked ? `(Locked by ${p.locked_by})` : ''} - {p.device}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        {lockedPort && (
+                                            <div className="absolute right-3 top-3 text-warning" title={`Locked by ${lockedPort.locked_by}`}>
+                                                <Lock size={20} />
+                                            </div>
+                                        )}
+                                    </div>
+                                    {lockedPort && (
+                                        <div className="flex items-center gap-2 mt-2 text-warning text-sm bg-warning/10 p-2 rounded-lg">
+                                            <AlertCircle size={16} />
+                                            <span>Settings inherited from {lockedPort.locked_by}</span>
+                                        </div>
+                                    )}
                                 </div>
+
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-sm font-medium text-text-secondary mb-2">Baudrate</label>
@@ -168,7 +282,8 @@ const DeviceForm = ({ onClose, onSubmit, editDevice = null }) => {
                                             type="number"
                                             value={formData.connection_params.baudrate}
                                             onChange={handleParamChange}
-                                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
+                                            disabled={!!lockedPort}
+                                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                         />
                                     </div>
                                     <div>
@@ -177,6 +292,117 @@ const DeviceForm = ({ onClose, onSubmit, editDevice = null }) => {
                                             name="slave_id"
                                             type="number"
                                             value={formData.connection_params.slave_id}
+                                            onChange={handleParamChange}
+                                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-3 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-text-secondary mb-2">Data Bits</label>
+                                        <select
+                                            name="databits"
+                                            value={formData.connection_params.databits}
+                                            onChange={handleParamChange}
+                                            disabled={!!lockedPort}
+                                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
+                                        >
+                                            {[5, 6, 7, 8].map(b => <option key={b} value={b}>{b}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-text-secondary mb-2">Stop Bits</label>
+                                        <select
+                                            name="stopbits"
+                                            value={formData.connection_params.stopbits}
+                                            onChange={handleParamChange}
+                                            disabled={!!lockedPort}
+                                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
+                                        >
+                                            {[1, 1.5, 2].map(b => <option key={b} value={b}>{b}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-text-secondary mb-2">Parity</label>
+                                        <select
+                                            name="parity"
+                                            value={formData.connection_params.parity}
+                                            onChange={handleParamChange}
+                                            disabled={!!lockedPort}
+                                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
+                                        >
+                                            <option value="N">None</option>
+                                            <option value="E">Even</option>
+                                            <option value="O">Odd</option>
+                                            <option value="M">Mark</option>
+                                            <option value="S">Space</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <label className="flex items-center gap-2 cursor-pointer bg-surfaceHighlight/10 p-3 rounded-xl border border-surfaceHighlight/30">
+                                        <input
+                                            type="checkbox"
+                                            name="rts"
+                                            checked={formData.connection_params.rts}
+                                            onChange={handleParamChange}
+                                            disabled={!!lockedPort}
+                                            className="w-5 h-5 rounded border-surfaceHighlight bg-surfaceHighlight/20 text-primary focus:ring-primary"
+                                        />
+                                        <span className="text-sm font-medium text-white">RTS Control</span>
+                                    </label>
+                                    <label className="flex items-center gap-2 cursor-pointer bg-surfaceHighlight/10 p-3 rounded-xl border border-surfaceHighlight/30">
+                                        <input
+                                            type="checkbox"
+                                            name="dtr"
+                                            checked={formData.connection_params.dtr}
+                                            onChange={handleParamChange}
+                                            disabled={!!lockedPort}
+                                            className="w-5 h-5 rounded border-surfaceHighlight bg-surfaceHighlight/20 text-primary focus:ring-primary"
+                                        />
+                                        <span className="text-sm font-medium text-white">DTR Control</span>
+                                    </label>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-text-secondary mb-2">Scan Time (ms)</label>
+                                        <input
+                                            name="scan_time"
+                                            type="number"
+                                            value={formData.connection_params.scan_time || 1000}
+                                            onChange={handleParamChange}
+                                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-text-secondary mb-2">Timeout (ms)</label>
+                                        <input
+                                            name="timeout"
+                                            type="number"
+                                            value={formData.connection_params.timeout || 1000}
+                                            onChange={handleParamChange}
+                                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-text-secondary mb-2">Retry Count</label>
+                                        <input
+                                            name="retry_count"
+                                            type="number"
+                                            value={formData.connection_params.retry_count || 3}
+                                            onChange={handleParamChange}
+                                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-text-secondary mb-2">Auto Recover (s)</label>
+                                        <input
+                                            name="auto_recover_time"
+                                            type="number"
+                                            value={formData.connection_params.auto_recover_time || 60}
                                             onChange={handleParamChange}
                                             className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white placeholder-text-muted focus:outline-none focus:border-primary transition-colors"
                                         />
