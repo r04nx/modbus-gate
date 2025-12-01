@@ -79,6 +79,17 @@ async def startup_event():
     from app.services.buffering_service import buffering_service
     await buffering_service.start()
 
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import os
+
+# Mount static files
+app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
+
 @app.get("/")
 async def root():
-    return {"message": "VistaIOT Backend is running"}
+    return FileResponse('static/index.html')
+
+@app.exception_handler(404)
+async def custom_404_handler(_, __):
+    return FileResponse('static/index.html')
