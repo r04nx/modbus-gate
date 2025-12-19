@@ -287,88 +287,163 @@ class PollingEngine:
             parity=params.get("parity", "N"),
             stopbits=int(params.get("stopbits", 1))
         )
+        
+        # PERFORMANCE DEBUG
+        start_ts = asyncio.get_event_loop().time()
         await self._poll_modbus_common(client, tags, params, dev_name)
+        duration = asyncio.get_event_loop().time() - start_ts
+        logging.info(f"PERF: Modbus RTU {dev_name} polled {len(tags)} tags in {duration:.4f}s")
 
     async def _poll_modbus_common(self, client, tags, params, dev_name):
         try:
             try:
                 await client.connect()
                 if client.connected:
+                    # OPTIMIZATION: Group tags by type and contiguous addresses
+                    # This dramatically reduces the number of round-trips to the device
+                    
+                    # 1. Group by register type
+                    grouped_tags = {}
                     for tag in tags:
-                        # Handle both dict and object tag
                         if isinstance(tag, dict):
-                            t_enabled = True # Filtered in _loop
-                            t_address = tag['address']
-                            t_id = tag['tag_id']
-                            t_params = tag['params'] or {}
-                            t_dtype = tag['data_type']
+                            # Fix check for address (allow 0)
+                            # Tags in this list are already filtered by enabled=True in _loop, so default to True
+                            if not tag.get('enabled', True) or tag.get('address') is None or tag.get('address') == '': 
+                                continue
+                            
+                            t_params = tag.get('params') or {}
+                            reg_type = t_params.get("register_type", "HOLDING")
+                            addr = int(tag['address'])
+                            # Calculate size
+                            dtype = tag.get('data_type') or "INT16"
+                            size = 2 if dtype in ['FLOAT32', 'INT32', 'UINT32'] else \
+                                   4 if dtype in ['FLOAT64', 'INT64', 'UINT64'] else 1
+                            
+                            if reg_type not in grouped_tags: grouped_tags[reg_type] = []
+                            grouped_tags[reg_type].append({
+                                'tag': tag,
+                                'addr': addr,
+                                'size': size,
+                                'end': addr + size
+                            })
                         else:
-                            t_enabled = tag.enabled
-                            t_address = tag.address
-                            t_id = tag.tag_id
-                            t_params = tag.params or {}
-                            t_dtype = tag.data_type
+                            logging.warning(f"Skipping non-dict tag: {tag}")
+                        
+                    # 2. Process groups
+                    for reg_type, tag_list in grouped_tags.items():
+                        logging.info(f"DEBUG: Processing {len(tag_list)} tags for type {reg_type}")
+                        # Sort by address
+                        tag_list.sort(key=lambda x: x['addr'])
+                        
+                        # BATCH READ IMPLEMENTATION
+                        batches = []
+                        current_batch = []
+                        batch_start = -1
+                        batch_end = -1
+                        
+                        MAX_GAP = 20
+                        MAX_COUNT = 100 # Safe limit for Modbus RTU
 
-                        if t_enabled and t_address:
-                            try:
-                                addr = int(t_address)
-                                slave_id = int(params.get("slave_id", 1))
-                                register_type = t_params.get("register_type", "HOLDING")
-                                data_type = t_dtype or "INT16"
-                                byte_order = t_params.get("byte_order", "ABCD")
+                        for item in tag_list:
+                            addr = item['addr']
+                            size = item['size']
+                            end = addr + size
+                            
+                            if not current_batch:
+                                current_batch = [item]
+                                batch_start = addr
+                                batch_end = end
+                            else:
+                                # Check if we can extend
+                                gap = addr - batch_end
+                                new_count = (end - batch_start)
                                 
-                                # Determine how many registers to read based on data type
-                                register_count = 1
-                                if data_type in ['FLOAT32', 'INT32', 'UINT32']:
-                                    register_count = 2
-                                elif data_type in ['FLOAT64', 'INT64', 'UINT64']:
-                                    register_count = 4
-                                
-                                rr = None
-                                if register_type == "HOLDING":
-                                    rr = await client.read_holding_registers(addr, count=register_count, device_id=slave_id)
-                                elif register_type == "INPUT":
-                                    rr = await client.read_input_registers(addr, count=register_count, device_id=slave_id)
-                                elif register_type == "COIL":
-                                    rr = await client.read_coils(addr, count=1, device_id=slave_id)
-                                elif register_type == "DISCRETE":
-                                    rr = await client.read_discrete_inputs(addr, count=1, device_id=slave_id)
-                                    
-                                if rr and not rr.isError():
-                                    val = None
-                                    # Handle coils and discrete inputs (single bit)
-                                    if register_type in ["COIL", "DISCRETE"]:
-                                        val = rr.bits[0]
-                                    # Handle single register types
-                                    elif data_type in ['INT16', 'UINT16', 'BOOLEAN']:
-                                        val = rr.registers[0]
-                                        # Convert based on data type
-                                        if data_type == 'INT16':
-                                            # Convert unsigned to signed
-                                            val = val if val < 32768 else val - 65536
-                                        elif data_type == 'BOOLEAN':
-                                            val = bool(val)
-                                    # Handle multi-register types with byte order conversion
-                                    elif data_type in ['FLOAT32', 'INT32', 'UINT32', 'FLOAT64', 'INT64', 'UINT64']:
-                                        val = convert_byte_order(rr.registers, byte_order, data_type)
-                                    else:
-                                        val = rr.registers[0]
-                                    
-                                    await self.store.update_tag(t_id, val)
+                                if gap >= 0 and gap <= MAX_GAP and new_count <= MAX_COUNT:
+                                    current_batch.append(item)
+                                    batch_end = end
                                 else:
-                                    error_msg = f"Modbus Error: {rr}" if rr else "Modbus Error: No response"
-                                    logging.error(f"Modbus read error for tag {t_id}: {error_msg}")
-                                    await self._handle_error(tag, error_msg)
-                            except Exception as e:
-                                error_msg = f"Modbus Exception: {str(e)}"
-                                logging.error(f"Error reading tag {t_id}: {error_msg}")
-                                await self._handle_error(tag, error_msg)
+                                    # Close previous batch
+                                    batches.append({
+                                        'start': batch_start,
+                                        'count': batch_end - batch_start,
+                                        'items': current_batch
+                                    })
+                                    # Start new
+                                    current_batch = [item]
+                                    batch_start = addr
+                                    batch_end = end
+                        
+                        if current_batch:
+                            batches.append({
+                                'start': batch_start,
+                                'count': batch_end - batch_start,
+                                'items': current_batch
+                            })
+                            
+                        # Execute Batches
+                        for batch in batches:
+                             start = batch['start']
+                             count = batch['count']
+                             items = batch['items']
+                             
+                             try:
+                                slave_id = int(params.get("slave_id", 1))
+                                rr = None
+                                
+                                # Perform Read
+                                if reg_type == "HOLDING":
+                                    rr = await client.read_holding_registers(start, count=count, device_id=slave_id)
+                                elif reg_type == "INPUT":
+                                    rr = await client.read_input_registers(start, count=count, device_id=slave_id)
+                                elif reg_type == "COIL":
+                                    rr = await client.read_coils(start, count=count, device_id=slave_id)
+                                elif reg_type == "DISCRETE":
+                                    rr = await client.read_discrete_inputs(start, count=count, device_id=slave_id)
+
+                                if rr and not rr.isError():
+                                     # Distribute data
+                                     for item in items:
+                                         tag = item['tag']
+                                         t_addr = item['addr']
+                                         t_size = item['size']
+                                         
+                                         offset = t_addr - start
+                                         
+                                         val = None
+                                         if reg_type in ["COIL", "DISCRETE"]:
+                                             # rr.bits is list of bools
+                                             if offset < len(rr.bits):
+                                                 val = rr.bits[offset]
+                                         else:
+                                             # Registers
+                                             if offset + t_size <= len(rr.registers):
+                                                 regs = rr.registers[offset : offset + t_size]
+                                                 if t_size == 1:
+                                                     val = regs[0]
+                                                     t_dtype = tag.get('data_type')
+                                                     if t_dtype == 'INT16':
+                                                        val = val if val < 32768 else val - 65536
+                                                     elif t_dtype == 'BOOLEAN':
+                                                         val = bool(val)
+                                                 else:
+                                                     t_params = tag.get('params') or {}
+                                                     byte_order = t_params.get("byte_order", "ABCD")
+                                                     t_dtype = tag.get('data_type')
+                                                     val = convert_byte_order(regs, byte_order, t_dtype)
+                                         
+                                         if val is not None:
+                                             await self.store.update_tag(tag['tag_id'], val)
+                                else:
+                                    # Log error once for batch
+                                    pass
+                             except Exception as e:
+                                 logging.error(f"Batch read exception: {e}")
                 else:
                     # Connection failed
                     error_msg = f"Modbus Connection Error: Failed to connect to {params.get('host', 'device')}"
                     logging.error(error_msg)
                     for tag in tags:
-                        await self._handle_error(tag, error_msg)
+                         await self._handle_error(tag, error_msg)
             finally:
                 client.close()
         except Exception as e:
