@@ -8,7 +8,7 @@ import logging
 from app.core.log_handler import memory_handler
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 # Add memory handler to root logger
@@ -31,6 +31,28 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix="/api/v1")
+
+from fastapi import Request, status
+from fastapi.responses import JSONResponse
+from app.core.license import verify_license
+
+@app.middleware("http")
+async def check_license(request: Request, call_next):
+    # Allow health checks or license status endpoints if needed
+    if request.url.path == "/api/v1/system/license-status":
+        return await call_next(request)
+        
+    is_valid, hardware_id = verify_license()
+    if not is_valid:
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={
+                "detail": "LICENSE_INVALID",
+                "hardware_id": hardware_id,
+                "message": "This application is locked to specific hardware."
+            }
+        )
+    return await call_next(request)
 
 @app.on_event("startup")
 async def startup_event():

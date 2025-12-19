@@ -130,7 +130,7 @@ async def test_connection(device_id: int, current_user: User = Depends(get_curre
                         "status": "error", 
                         "code": "ERR_SERIAL_OPEN",
                         "message": "Port Open Failed",
-                        "detail": f"Could not open serial port {port}. Check if the device is connected and permissions are correct."
+                        "detail": f"Could not open serial port {port}. Check if the device is connected and permissions are correct. If the device is enabled, try disabling it first to stop the polling engine from holding the port."
                     }
             except Exception as e:
                 return {

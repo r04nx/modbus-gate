@@ -23,3 +23,6 @@ api_router.include_router(terminal.router, prefix="/terminal", tags=["terminal"]
 
 from app.api.endpoints import buffering
 api_router.include_router(buffering.router, prefix="/buffering", tags=["buffering"])
+
+from app.api.endpoints import operations
+api_router.include_router(operations.router, prefix="/operations", tags=["operations"])

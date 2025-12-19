@@ -1,19 +1,16 @@
 import axios from 'axios';
 
-// Use current host for API calls instead of hardcoded localhost
-// This allows the app to work when accessed from other devices on the network
-const API_HOST = window.location.hostname;
-const API_PORT = '8000';
+// Use relative path for API calls to support reverse proxy (Nginx)
+// This avoids CORS issues and firewall blocks on custom ports
+const api = axios.create({
+    baseURL: '/api/v1'
+});
 
 // Helper function for Basic Auth
 const getAuthHeader = () => {
     const auth = localStorage.getItem('auth');
     return auth ? { Authorization: `Basic ${auth}` } : {};
 };
-
-const api = axios.create({
-    baseURL: `http://${API_HOST}:${API_PORT}/api/v1`
-});
 
 // Add request interceptor to inject auth header dynamically
 api.interceptors.request.use((config) => {
@@ -34,6 +31,13 @@ export const setupInterceptors = (showToast) => {
         (response) => response,
         (error) => {
             const message = error.response?.data?.detail || error.message || "An unexpected error occurred";
+
+            // Handle License Error
+            if (error.response && error.response.status === 403 && error.response.data?.detail === 'LICENSE_INVALID') {
+                const hardwareId = error.response.data.hardware_id || 'UNKNOWN';
+                window.location.href = `/license-error?id=${hardwareId}`;
+                return Promise.reject(error);
+            }
 
             // Handle 401 specifically
             if (error.response && error.response.status === 401) {

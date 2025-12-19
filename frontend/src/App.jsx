@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
+import LicenseError from './pages/LicenseError';
 import Dashboard from './pages/Dashboard';
 
 import Devices from './pages/Devices';
@@ -38,6 +39,7 @@ function App() {
       <Router>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/license-error" element={<LicenseError />} />
           <Route path="/*" element={
             <PrivateRoute>
               <Layout>

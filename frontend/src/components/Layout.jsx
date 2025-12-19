@@ -70,9 +70,19 @@ const Layout = ({ children }) => {
                     <div className="w-10 h-10 bg-gradient-to-br from-primary to-accent rounded-xl flex items-center justify-center shadow-lg">
                         <Activity className="text-white" size={24} />
                     </div>
-                    <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">
-                        VistaIOT
-                    </h1>
+                    <div className="flex flex-col">
+                        <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400 leading-none">
+                            VistaIOT
+                        </h1>
+                        <a
+                            href="https://spit.ac.in"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xl font-bold text-primary tracking-widest opacity-90 mt-1 hover:opacity-100 hover:text-accent transition-all"
+                        >
+                            SP-IT
+                        </a>
+                    </div>
                 </div>
 
                 <nav className="flex-1 p-4 space-y-2 overflow-y-auto">

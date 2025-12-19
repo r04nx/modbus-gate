@@ -14,8 +14,8 @@ class DeviceBase(BaseModel):
 
     @field_validator('name')
     def name_must_not_contain_spaces_or_colons(cls, v):
-        if not re.match(r'^[a-zA-Z0-9_-]+$', v):
-            raise ValueError('Name must not contain spaces, colons, or special characters (only alphanumeric, _, - allowed)')
+        if re.search(r'[\s:]', v):
+            raise ValueError('Name must not contain spaces or colons')
         return v
 
 class DeviceCreate(DeviceBase):
@@ -31,8 +31,8 @@ class DeviceUpdate(BaseModel):
 
     @field_validator('name')
     def name_must_not_contain_spaces_or_colons(cls, v):
-        if v is not None and not re.match(r'^[a-zA-Z0-9_-]+$', v):
-            raise ValueError('Name must not contain spaces, colons, or special characters (only alphanumeric, _, - allowed)')
+        if v is not None and re.search(r'[\s:]', v):
+            raise ValueError('Name must not contain spaces or colons')
         return v
 
 class Device(DeviceBase):
@@ -60,8 +60,8 @@ class TagBase(BaseModel):
 
     @field_validator('name')
     def name_must_not_contain_spaces_or_colons(cls, v):
-        if not re.match(r'^[a-zA-Z0-9_-]+$', v):
-            raise ValueError('Name must not contain spaces, colons, or special characters (only alphanumeric, _, - allowed)')
+        if re.search(r'[\s:]', v):
+            raise ValueError('Name must not contain spaces or colons')
         return v
 
 class TagCreate(TagBase):
@@ -85,8 +85,8 @@ class TagUpdate(BaseModel):
 
     @field_validator('name')
     def name_must_not_contain_spaces_or_colons(cls, v):
-        if v is not None and not re.match(r'^[a-zA-Z0-9_-]+$', v):
-            raise ValueError('Name must not contain spaces, colons, or special characters (only alphanumeric, _, - allowed)')
+        if v is not None and re.search(r'[\s:]', v):
+            raise ValueError('Name must not contain spaces or colons')
         return v
 
 class Tag(TagBase):

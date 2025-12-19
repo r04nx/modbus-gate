@@ -108,190 +108,288 @@ class PollingEngine:
 
     async def _loop(self):
         while self.running:
+            start_time = asyncio.get_event_loop().time()
             try:
-                db: Session = SessionLocal()
-                devices = db.query(models.Device).filter(models.Device.enabled == True).all()
+                # 1. Fetch Configuration EFFICIENTLY
+                # Open DB, get what we need, and Close immediately.
+                # Do NOT hold the session open while polling networks!
+                device_configs = []
+                disabled_devices = []
                 
+                try:
+                    db: Session = SessionLocal()
+                    
+                    # Fetch enabled devices with their tags
+                    # We load everything into memory dicts/objects to avoid lazy loading issues after session closes
+                    devices = db.query(models.Device).filter(models.Device.enabled == True).all()
+                    
+                    for device in devices:
+                        # Create a lightweight config object
+                        dev_cfg = {
+                            'id': device.id,
+                            'name': device.name,
+                            'type': device.type,
+                            'connection_params': device.connection_params,
+                            'tags': []
+                        }
+                        
+                        for tag in device.tags:
+                            if tag.enabled:
+                                dev_cfg['tags'].append({
+                                    'tag_id': tag.tag_id,
+                                    'type': tag.type,
+                                    'address': tag.address,
+                                    'data_type': tag.data_type,
+                                    'params': tag.params,
+                                    'fallback_type': tag.fallback_type,
+                                    'fallback_value': tag.fallback_value
+                                })
+                        device_configs.append(dev_cfg)
+                        
+                    # Fetch disabled devices to update their status
+                    disabled_devs = db.query(models.Device).filter(models.Device.enabled == False).all()
+                    for device in disabled_devs:
+                        tags = [t.tag_id for t in device.tags]
+                        disabled_devices.append(tags)
+                        
+                except Exception as e:
+                    logging.error(f"Error fetching config from DB: {e}")
+                finally:
+                    # CRITICAL: Always close the DB session
+                    if db:
+                        db.close()
+
+                # 2. Perform Polling (No DB Lock here!)
                 tasks = []
-                for device in devices:
-                    tasks.append(self._poll_device(device))
+                for dev_cfg in device_configs:
+                    tasks.append(self._poll_device_optimized(dev_cfg))
                 
                 if tasks:
                     await asyncio.gather(*tasks)
-                
-                db.close()
+
+                # 3. Handle Disabled Devices (Update Store)
+                for tags in disabled_devices:
+                    for tag_id in tags:
+                        await self.store.update_tag(tag_id, None, quality="DISABLED", error_message="Device Disabled")
+
             except Exception as e:
                 logging.error(f"Error in polling loop: {e}")
             
-            await asyncio.sleep(1) # Global polling cycle tick
-
-            # Handle disabled devices - Update their tags to DISABLED
-            try:
-                db: Session = SessionLocal()
-                disabled_devices = db.query(models.Device).filter(models.Device.enabled == False).all()
-                for device in disabled_devices:
-                    for tag in device.tags:
-                        # Only update if not already DISABLED to avoid spamming store updates
-                        # (Store handles check, but we save DB query overhead if we could check here, 
-                        # but we can't easily check store without async call. Store check is fast.)
-                        await self.store.update_tag(tag.tag_id, None, quality="DISABLED", error_message="Device Disabled")
-                db.close()
-            except Exception as e:
-                logging.error(f"Error handling disabled devices: {e}")
+            # Simple rate limiting - aim for 1 second loop if possible, or immediate if lagging
+            elapsed = asyncio.get_event_loop().time() - start_time
+            sleep_time = max(0.1, 1.0 - elapsed)
+            await asyncio.sleep(sleep_time)
 
     async def _handle_error(self, tag, error_msg):
         """
         Handle polling error by applying fallback logic if configured.
         Only applies to IO tags - SYSTEM and SERVER tags return None on error.
         """
+        # Support both ORM object and dictionary
+        if isinstance(tag, dict):
+            tag_id = tag.get('tag_id')
+            tag_type = tag.get('type')
+            fallback_type = tag.get('fallback_type', 'none')
+            fallback_value = tag.get('fallback_value')
+        else:
+            tag_id = tag.tag_id
+            tag_type = tag.type
+            fallback_type = tag.fallback_type or 'none'
+            fallback_value = tag.fallback_value
+
         value = None
         
         # Only apply fallback mechanism to IO tags
         # SYSTEM and SERVER tags should return None on error
-        if tag.type != 'IO':
+        if tag_type != 'IO':
             # For non-IO tags, just update with None and BAD quality
-            await self.store.update_tag(tag.tag_id, None, quality="BAD", error_message=error_msg)
+            await self.store.update_tag(tag_id, None, quality="BAD", error_message=error_msg)
             return
-        
-        # Check fallback configuration for IO tags
-        fallback_type = tag.fallback_type or 'none'
         
         # If fallback is 'none', return None
         if fallback_type == 'none':
-            await self.store.update_tag(tag.tag_id, None, quality="BAD", error_message=error_msg)
+            await self.store.update_tag(tag_id, None, quality="BAD", error_message=error_msg)
             return
         
-        if fallback_type == 'default' and tag.fallback_value:
+        if fallback_type == 'default' and fallback_value:
             # Use configured default value
             try:
                 # Try to parse as number first
-                val_float = float(tag.fallback_value)
+                val_float = float(fallback_value)
                 if val_float.is_integer():
                     value = int(val_float)
                 else:
                     value = val_float
             except (ValueError, AttributeError):
                 # Use as string
-                value = tag.fallback_value
+                value = fallback_value
                 
         elif fallback_type == 'last_success':
             # Get last known good value from store
-            current_tag = await self.store.get_tag(tag.tag_id)
+            current_tag = await self.store.get_tag(tag_id)
             if current_tag:
                 value = current_tag.value
         
         # Update store with fallback value (if any) and BAD quality
-        await self.store.update_tag(tag.tag_id, value, quality="BAD", error_message=error_msg)
+        await self.store.update_tag(tag_id, value, quality="BAD", error_message=error_msg)
 
-    async def _poll_device(self, device: models.Device):
+    async def _poll_device_optimized(self, device_cfg):
         try:
-            if device.type == "MODBUS_TCP":
-                await self._poll_modbus_tcp(device)
-            elif device.type == "MODBUS_RTU":
-                await self._poll_modbus_rtu(device)
-            elif device.type == "OPC_UA":
-                await self._poll_opc_ua(device)
-            elif device.type == "SNMP":
-                await self._poll_snmp(device)
-            elif device.type == "IEC104":
-                await self._poll_iec104(device)
+            dev_type = device_cfg['type']
+            if dev_type == "MODBUS_TCP":
+                await self._poll_modbus_tcp(device_cfg)
+            elif dev_type == "MODBUS_RTU":
+                await self._poll_modbus_rtu(device_cfg)
+            elif dev_type == "OPC_UA":
+                await self._poll_opc_ua(device_cfg)
+            elif dev_type == "SNMP":
+                await self._poll_snmp(device_cfg)
+            elif dev_type == "IEC104":
+                await self._poll_iec104(device_cfg)
         except Exception as e:
-            logging.error(f"Error polling device {device.name}: {e}")
+            logging.error(f"Error polling device {device_cfg['name']}: {e}")
 
-    async def _poll_modbus_tcp(self, device: models.Device):
-        params = device.connection_params
-        client = AsyncModbusTcpClient(params.get("host"), port=params.get("port", 502))
-        await self._poll_modbus_common(client, device, params)
+    # Legacy support
+    async def _poll_device(self, device: models.Device):
+        # Adapt legacy ORM object to simplified dict to reuse logic if possible, 
+        # or just redirect to new logic with adapted structure
+        logging.warning("Using legacy _poll_device path - performance warning")
+        pass
 
-    async def _poll_modbus_rtu(self, device: models.Device):
-        params = device.connection_params
+    async def _poll_modbus_tcp(self, device):
+        # device can be dict or ORM object, handle access
+        if isinstance(device, dict):
+            params = device['connection_params']
+            tags = device['tags']
+            dev_name = device['name']
+        else:
+            params = device.connection_params
+            tags = device.tags
+            dev_name = device.name
+
+        client = AsyncModbusTcpClient(params.get("host"), port=int(params.get("port", 502)))
+        await self._poll_modbus_common(client, tags, params, dev_name)
+
+    async def _poll_modbus_rtu(self, device):
+        if isinstance(device, dict):
+            params = device['connection_params']
+            tags = device['tags']
+            dev_name = device['name']
+        else:
+            params = device.connection_params
+            tags = device.tags
+            dev_name = device.name
+
         client = AsyncModbusSerialClient(
             params.get("port"), 
-            baudrate=params.get("baudrate", 9600),
-            bytesize=params.get("bytesize", 8),
+            baudrate=int(params.get("baudrate", 9600)),
+            bytesize=int(params.get("bytesize", 8)),
             parity=params.get("parity", "N"),
-            stopbits=params.get("stopbits", 1)
+            stopbits=int(params.get("stopbits", 1))
         )
-        await self._poll_modbus_common(client, device, params)
+        await self._poll_modbus_common(client, tags, params, dev_name)
 
-    async def _poll_modbus_common(self, client, device, params):
+    async def _poll_modbus_common(self, client, tags, params, dev_name):
         try:
-            await client.connect()
-            if client.connected:
-                for tag in device.tags:
-                    if tag.enabled and tag.address:
-                        try:
-                            addr = int(tag.address)
-                            slave_id = params.get("slave_id", 1)
-                            register_type = (tag.params or {}).get("register_type", "HOLDING")
-                            data_type = tag.data_type or "INT16"
-                            byte_order = (tag.params or {}).get("byte_order", "ABCD")
-                            
-                            # Determine how many registers to read based on data type
-                            register_count = 1
-                            if data_type in ['FLOAT32', 'INT32', 'UINT32']:
-                                register_count = 2
-                            elif data_type in ['FLOAT64', 'INT64', 'UINT64']:
-                                register_count = 4
-                            
-                            rr = None
-                            if register_type == "HOLDING":
-                                rr = await client.read_holding_registers(addr, count=register_count, device_id=slave_id)
-                            elif register_type == "INPUT":
-                                rr = await client.read_input_registers(addr, count=register_count, device_id=slave_id)
-                            elif register_type == "COIL":
-                                rr = await client.read_coils(addr, count=1, device_id=slave_id)
-                            elif register_type == "DISCRETE":
-                                rr = await client.read_discrete_inputs(addr, count=1, device_id=slave_id)
+            try:
+                await client.connect()
+                if client.connected:
+                    for tag in tags:
+                        # Handle both dict and object tag
+                        if isinstance(tag, dict):
+                            t_enabled = True # Filtered in _loop
+                            t_address = tag['address']
+                            t_id = tag['tag_id']
+                            t_params = tag['params'] or {}
+                            t_dtype = tag['data_type']
+                        else:
+                            t_enabled = tag.enabled
+                            t_address = tag.address
+                            t_id = tag.tag_id
+                            t_params = tag.params or {}
+                            t_dtype = tag.data_type
+
+                        if t_enabled and t_address:
+                            try:
+                                addr = int(t_address)
+                                slave_id = int(params.get("slave_id", 1))
+                                register_type = t_params.get("register_type", "HOLDING")
+                                data_type = t_dtype or "INT16"
+                                byte_order = t_params.get("byte_order", "ABCD")
                                 
-                            if rr and not rr.isError():
-                                # Handle coils and discrete inputs (single bit)
-                                if register_type in ["COIL", "DISCRETE"]:
-                                    val = rr.bits[0]
-                                # Handle single register types
-                                elif data_type in ['INT16', 'UINT16', 'BOOLEAN']:
-                                    val = rr.registers[0]
-                                    # Convert based on data type
-                                    if data_type == 'INT16':
-                                        # Convert unsigned to signed
-                                        val = val if val < 32768 else val - 65536
-                                    elif data_type == 'BOOLEAN':
-                                        val = bool(val)
-                                # Handle multi-register types with byte order conversion
-                                elif data_type in ['FLOAT32', 'INT32', 'UINT32', 'FLOAT64', 'INT64', 'UINT64']:
-                                    val = convert_byte_order(rr.registers, byte_order, data_type)
+                                # Determine how many registers to read based on data type
+                                register_count = 1
+                                if data_type in ['FLOAT32', 'INT32', 'UINT32']:
+                                    register_count = 2
+                                elif data_type in ['FLOAT64', 'INT64', 'UINT64']:
+                                    register_count = 4
+                                
+                                rr = None
+                                if register_type == "HOLDING":
+                                    rr = await client.read_holding_registers(addr, count=register_count, device_id=slave_id)
+                                elif register_type == "INPUT":
+                                    rr = await client.read_input_registers(addr, count=register_count, device_id=slave_id)
+                                elif register_type == "COIL":
+                                    rr = await client.read_coils(addr, count=1, device_id=slave_id)
+                                elif register_type == "DISCRETE":
+                                    rr = await client.read_discrete_inputs(addr, count=1, device_id=slave_id)
+                                    
+                                if rr and not rr.isError():
+                                    val = None
+                                    # Handle coils and discrete inputs (single bit)
+                                    if register_type in ["COIL", "DISCRETE"]:
+                                        val = rr.bits[0]
+                                    # Handle single register types
+                                    elif data_type in ['INT16', 'UINT16', 'BOOLEAN']:
+                                        val = rr.registers[0]
+                                        # Convert based on data type
+                                        if data_type == 'INT16':
+                                            # Convert unsigned to signed
+                                            val = val if val < 32768 else val - 65536
+                                        elif data_type == 'BOOLEAN':
+                                            val = bool(val)
+                                    # Handle multi-register types with byte order conversion
+                                    elif data_type in ['FLOAT32', 'INT32', 'UINT32', 'FLOAT64', 'INT64', 'UINT64']:
+                                        val = convert_byte_order(rr.registers, byte_order, data_type)
+                                    else:
+                                        val = rr.registers[0]
+                                    
+                                    await self.store.update_tag(t_id, val)
                                 else:
-                                    val = rr.registers[0]
-                                
-                                await self.store.update_tag(tag.tag_id, val)
-                            else:
-                                error_msg = f"Modbus Error: {rr}" if rr else "Modbus Error: No response"
-                                logging.error(f"Modbus read error for tag {tag.tag_id}: {error_msg}")
+                                    error_msg = f"Modbus Error: {rr}" if rr else "Modbus Error: No response"
+                                    logging.error(f"Modbus read error for tag {t_id}: {error_msg}")
+                                    await self._handle_error(tag, error_msg)
+                            except Exception as e:
+                                error_msg = f"Modbus Exception: {str(e)}"
+                                logging.error(f"Error reading tag {t_id}: {error_msg}")
                                 await self._handle_error(tag, error_msg)
-                        except Exception as e:
-                            error_msg = f"Modbus Exception: {str(e)}"
-                            logging.error(f"Error reading tag {tag.tag_id}: {error_msg}")
-                            await self._handle_error(tag, error_msg)
-            else:
-                # Connection failed
-                error_msg = f"Modbus Connection Error: Failed to connect to {params.get('host', 'device')}"
-                logging.error(error_msg)
-                for tag in device.tags:
-                    if tag.enabled:
+                else:
+                    # Connection failed
+                    error_msg = f"Modbus Connection Error: Failed to connect to {params.get('host', 'device')}"
+                    logging.error(error_msg)
+                    for tag in tags:
                         await self._handle_error(tag, error_msg)
-            client.close()
+            finally:
+                client.close()
         except Exception as e:
             error_msg = f"Modbus Connection Exception: {str(e)}"
-            logging.error(f"Error polling device {device.name}: {error_msg}")
-            for tag in device.tags:
-                if tag.enabled:
-                    await self._handle_error(tag, error_msg)
+            logging.error(f"Error polling device {dev_name}: {error_msg}")
+            for tag in tags:
+                await self._handle_error(tag, error_msg)
 
-    async def _poll_opc_ua(self, device: models.Device):
-        params = device.connection_params
+    async def _poll_opc_ua(self, device):
+        if isinstance(device, dict):
+            params = device['connection_params']
+            tags = device['tags']
+            dev_name = device['name']
+            device_id = device['id']
+        else:
+            params = device.connection_params
+            tags = device.tags
+            dev_name = device.name
+            device_id = device.id
+
         url = params.get("url")
-        device_id = device.id
-        
         client = self._opcua_clients.get(device_id)
         
         try:
@@ -300,27 +398,32 @@ class PollingEngine:
                 client = OpcUaClient(url)
                 await client.connect()
                 self._opcua_clients[device_id] = client
-                logging.info(f"Connected to OPC UA device {device.name} at {url}")
+                logging.info(f"Connected to OPC UA device {dev_name} at {url}")
             
-            # Check if still connected (simple check)
-            # asyncua client doesn't have a simple is_connected property that is always reliable
-            # but we can try to read. If it fails, we'll catch exception and reconnect next time.
-            
-            for tag in device.tags:
-                if tag.enabled and tag.address:
+            for tag in tags:
+                if isinstance(tag, dict):
+                    t_enabled = True
+                    t_address = tag['address']
+                    t_id = tag['tag_id']
+                else:
+                    t_enabled = tag.enabled
+                    t_address = tag.address
+                    t_id = tag.tag_id
+
+                if t_enabled and t_address:
                     try:
-                        node = client.get_node(tag.address)
+                        node = client.get_node(t_address)
                         val = await node.read_value()
-                        await self.store.update_tag(tag.tag_id, val)
+                        await self.store.update_tag(t_id, val)
                     except Exception as e:
                         # If we get a connection related error, we should probably reset the client
                         error_msg = f"OPC UA Error: {str(e)}"
-                        logging.error(f"Error reading OPC UA tag {tag.tag_id}: {error_msg}")
+                        logging.error(f"Error reading OPC UA tag {t_id}: {error_msg}")
                         await self._handle_error(tag, error_msg)
                         
                         # Check if it's a connection error to trigger reconnect
                         if "connection" in str(e).lower() or "socket" in str(e).lower() or "timeout" in str(e).lower():
-                            logging.warning(f"OPC UA connection lost for {device.name}, resetting client...")
+                            logging.warning(f"OPC UA connection lost for {dev_name}, resetting client...")
                             try:
                                 await client.disconnect()
                             except:
@@ -335,13 +438,20 @@ class PollingEngine:
             # Remove from cache so we try fresh connection next time
             self._opcua_clients.pop(device_id, None)
             
-            for tag in device.tags:
-                if tag.enabled:
-                    await self._handle_error(tag, error_msg)
+            for tag in tags:
+                await self._handle_error(tag, error_msg)
 
-    async def _poll_snmp(self, device: models.Device):
+    async def _poll_snmp(self, device):
         """Poll SNMP device with support for v1, v2c, and v3"""
-        params = device.connection_params
+        if isinstance(device, dict):
+            params = device['connection_params']
+            tags = device['tags']
+            dev_name = device['name']
+        else:
+            params = device.connection_params
+            tags = device.tags
+            dev_name = device.name
+
         host = params.get("host")
         port = params.get("port", 161)
         version = params.get("version", "v2c")  # v1, v2c, or v3
@@ -359,7 +469,7 @@ class PollingEngine:
             # User-based security model
             username = params.get("username")
             if not username:
-                logging.error(f"SNMPv3 requires username for device {device.name}")
+                logging.error(f"SNMPv3 requires username for device {dev_name}")
                 return
             
             security_level = params.get("security_level", "noAuthNoPriv")
@@ -375,7 +485,7 @@ class PollingEngine:
                 auth_key = params.get("auth_password")
                 
                 if not auth_key:
-                    logging.error(f"SNMPv3 {security_level} requires auth_password for device {device.name}")
+                    logging.error(f"SNMPv3 {security_level} requires auth_password for device {dev_name}")
                     return
             
             # Privacy (encryption)
@@ -385,7 +495,7 @@ class PollingEngine:
                 priv_key = params.get("priv_password")
                 
                 if not priv_key:
-                    logging.error(f"SNMPv3 authPriv requires priv_password for device {device.name}")
+                    logging.error(f"SNMPv3 authPriv requires priv_password for device {dev_name}")
                     return
             
             auth_data = UsmUserData(
@@ -396,19 +506,28 @@ class PollingEngine:
                 privProtocol=priv_protocol
             )
         else:
-            logging.error(f"Unsupported SNMP version '{version}' for device {device.name}")
+            logging.error(f"Unsupported SNMP version '{version}' for device {dev_name}")
             return
 
         # Poll each tag
-        for tag in device.tags:
-            if tag.enabled and tag.address:  # address is OID e.g. "1.3.6.1.2.1.1.1.0"
+        for tag in tags:
+            if isinstance(tag, dict):
+                t_enabled = True
+                t_address = tag['address']
+                t_id = tag['tag_id']
+            else:
+                t_enabled = tag.enabled
+                t_address = tag.address
+                t_id = tag.tag_id
+
+            if t_enabled and t_address:  # address is OID e.g. "1.3.6.1.2.1.1.1.0"
                 try:
                     errorIndication, errorStatus, errorIndex, varBinds = await getCmd(
                         SnmpEngine(),
                         auth_data,
                         UdpTransportTarget((host, port), timeout=params.get("timeout", 5), retries=params.get("retries", 3)),
                         ContextData(),
-                        ObjectType(ObjectIdentity(tag.address))
+                        ObjectType(ObjectIdentity(t_address))
                     )
 
                     if errorIndication:
@@ -431,21 +550,25 @@ class PollingEngine:
                                 await self._handle_error(tag, error_msg)
                             else:
                                 # Convert SNMP types to python types if needed
-                                await self.store.update_tag(tag.tag_id, str(val))
+                                await self.store.update_tag(t_id, str(val))
                 except Exception as e:
                     error_msg = f"SNMP Exception: {str(e)}"
-                    logging.error(f"Error reading SNMP tag {tag.tag_id}: {error_msg}")
+                    logging.error(f"Error reading SNMP tag {t_id}: {error_msg}")
                     await self._handle_error(tag, error_msg)
 
-    async def _poll_iec104(self, device: models.Device):
+    async def _poll_iec104(self, device):
         # IEC104 is usually event-driven, but here we implement a simple poll (interrogation)
+        if isinstance(device, dict):
+            params = device['connection_params']
+            tags = device['tags']
+            dev_name = device['name']
+        else:
+            params = device.connection_params
+            tags = device.tags
+            dev_name = device.name
         
-        params = device.connection_params
         host = params.get("host", "127.0.0.1")
         port = params.get("port", 2404)
-        # common_address is used in add_station, not add_connection usually, 
-        # but for client we might not need to specify it for connection, 
-        # it's part of the ASDU address in the packet.
         
         received_data = {}
 
@@ -476,12 +599,21 @@ class PollingEngine:
             await asyncio.sleep(1.0)
             
             # Update store
-            for tag in device.tags:
-                if tag.enabled and tag.address:
-                    if tag.address in received_data:
-                        await self.store.update_tag(tag.tag_id, received_data[tag.address])
+            for tag in tags:
+                if isinstance(tag, dict):
+                    t_enabled = True
+                    t_address = tag['address']
+                    t_id = tag['tag_id']
+                else:
+                    t_enabled = tag.enabled
+                    t_address = tag.address
+                    t_id = tag.tag_id
+
+                if t_enabled and t_address:
+                    if t_address in received_data:
+                        await self.store.update_tag(t_id, received_data[t_address])
             
             # Client cleanup is handled by garbage collection/destructor in python bindings usually
             
         except Exception as e:
-            logging.error(f"Error polling IEC104 device {device.name}: {e}")
+            logging.error(f"Error polling IEC104 device {dev_name}: {e}")
