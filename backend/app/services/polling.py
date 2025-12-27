@@ -98,6 +98,7 @@ class PollingEngine:
         self.running = False
         self.store = GlobalDataStore()
         self._opcua_clients = {} # Cache for persistent OPC UA connections
+        self._serial_locks = {} # Locks for serial ports to prevent racing
 
     async def start(self):
         self.running = True
@@ -280,19 +281,24 @@ class PollingEngine:
             tags = device.tags
             dev_name = device.name
 
-        client = AsyncModbusSerialClient(
-            params.get("port"), 
-            baudrate=int(params.get("baudrate", 9600)),
-            bytesize=int(params.get("bytesize", 8)),
-            parity=params.get("parity", "N"),
-            stopbits=int(params.get("stopbits", 1))
-        )
-        
-        # PERFORMANCE DEBUG
-        start_ts = asyncio.get_event_loop().time()
-        await self._poll_modbus_common(client, tags, params, dev_name)
-        duration = asyncio.get_event_loop().time() - start_ts
-        logging.info(f"PERF: Modbus RTU {dev_name} polled {len(tags)} tags in {duration:.4f}s")
+        port = params.get("port")
+        if port not in self._serial_locks:
+            self._serial_locks[port] = asyncio.Lock()
+            
+        async with self._serial_locks[port]:
+            client = AsyncModbusSerialClient(
+                port, 
+                baudrate=int(params.get("baudrate", 9600)),
+                bytesize=int(params.get("bytesize", 8)),
+                parity=params.get("parity", "N"),
+                stopbits=int(params.get("stopbits", 1))
+            )
+            
+            # PERFORMANCE DEBUG
+            start_ts = asyncio.get_event_loop().time()
+            await self._poll_modbus_common(client, tags, params, dev_name)
+            duration = asyncio.get_event_loop().time() - start_ts
+            logging.info(f"PERF: Modbus RTU {dev_name} polled {len(tags)} tags in {duration:.4f}s")
 
     async def _poll_modbus_common(self, client, tags, params, dev_name):
         try:
