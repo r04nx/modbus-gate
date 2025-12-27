@@ -30,7 +30,22 @@ echo "Installing service files..."
 cp "$APP_DIR/vistaiot-backend-remote.service" /etc/systemd/system/vistaiot-backend.service
 cp "$APP_DIR/vistaiot-db-viewer-remote.service" /etc/systemd/system/vistaiot-db-viewer.service
 
-# 5. Reload and Start Services
+# 5. Configure Network (Persistence Fix)
+echo "Configuring network priority..."
+# Only modify if connection exists
+if nmcli connection show eth1-config &> /dev/null; then
+    echo "Setting eth1-config metric to 700..."
+    nmcli connection modify eth1-config ipv4.route-metric 700
+fi
+
+# Enable Connectivity Check
+echo "Enabling connectivity check..."
+mkdir -p /etc/NetworkManager/conf.d
+echo -e '[connectivity]\nuri=http://nmcheck.gnome.org/check_network_status.txt\ninterval=60' > /etc/NetworkManager/conf.d/20-connectivity.conf
+# Reload to apply
+systemctl reload NetworkManager || true
+
+# 6. Reload and Start Services
 echo "Starting services..."
 systemctl daemon-reload
 systemctl enable vistaiot-backend.service
