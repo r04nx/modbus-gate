@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-APP_DIR="/opt/vistaiot"
+APP_DIR=$(pwd)
 
 echo "Starting Remote Setup in $APP_DIR..."
 

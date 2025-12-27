@@ -1,10 +1,10 @@
 #!/bin/bash
 set -e
 
-REMOTE_HOST="192.168.50.22"
+REMOTE_HOST="100.120.145.20"
 REMOTE_USER="root"
 REMOTE_PASS="root"
-REMOTE_DIR="/opt/vistaiot"
+REMOTE_DIR="/root/modbus-gate/backend"
 
 echo "Deploying to $REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR"
 
