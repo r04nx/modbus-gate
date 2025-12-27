@@ -21,6 +21,6 @@ sshpass -p "$REMOTE_PASS" ssh -o StrictHostKeyChecking=no "$REMOTE_USER@$REMOTE_
 
 # 3. Run setup script on remote
 echo "Running remote setup script..."
-sshpass -p "$REMOTE_PASS" ssh -o StrictHostKeyChecking=no "$REMOTE_USER@$REMOTE_HOST" "chmod +x $REMOTE_DIR/setup_remote.sh && $REMOTE_DIR/setup_remote.sh"
+sshpass -p "$REMOTE_PASS" ssh -o StrictHostKeyChecking=no "$REMOTE_USER@$REMOTE_HOST" "chmod +x $REMOTE_DIR/setup_remote.sh && cd $REMOTE_DIR && ./setup_remote.sh"
 
 echo "Deployment Finished!"
