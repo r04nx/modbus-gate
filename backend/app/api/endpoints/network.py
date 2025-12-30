@@ -29,7 +29,246 @@ router = APIRouter()
 NMCLI = "/usr/bin/nmcli"
 IP_CMD = "/usr/sbin/ip"
 
-# Pydantic models
+
+# Wifi Models
+class WifiNetwork(BaseModel):
+    ssid: str
+    bssid: str
+    signal: int
+    security: str
+    in_use: bool
+    bars: str
+
+class WifiConnectRequest(BaseModel):
+    ssid: str
+    password: str
+
+class WifiStatusResponse(BaseModel):
+    connected: bool
+    ssid: Optional[str]
+    ip_address: Optional[str]
+    signal_strength: Optional[int]
+    frequency: Optional[str]
+    device: Optional[str]
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Wifi Helpers
+def get_wifi_status_info():
+    """Get current Wifi Connection status."""
+    try:
+        # 1. Get Active Connection and Device
+        result = subprocess.run(
+            [NMCLI, "-t", "-f", "TYPE,NAME,DEVICE,STATE", "con", "show", "--active"],
+            capture_output=True,
+            text=True
+        )
+        
+        wifi_con = None
+        device = None
+        
+        for line in result.stdout.splitlines():
+            if line.startswith("802-11-wireless") or line.startswith("wifi"):
+                parts = line.split(":")
+                # Type:Name:Device:State
+                if len(parts) >= 3:
+                    wifi_con = parts[1]
+                    device = parts[2]
+                    break
+        
+        if not wifi_con:
+            return WifiStatusResponse(connected=False, ssid=None, ip_address=None, signal_strength=None, frequency=None, device=None)
+
+        ssid = wifi_con
+        ip = None
+        signal = None
+        freq = None
+
+        logger.warning(f"[WIFI DEBUG] Found connection. Device: {device}, SSID: {ssid}")
+
+        # 2. Get IP Address from 'dev show' (Using Terse)
+        # Format: IP4.ADDRESS[1]:192.168.1.51/24
+        status_res = subprocess.run(
+            [NMCLI, "-t", "-f", "IP4.ADDRESS", "dev", "show", device],
+            capture_output=True,
+            text=True
+        )
+        
+        # Log raw IP output
+        logger.warning(f"[WIFI DEBUG] IP Raw Output: {status_res.stdout.strip()}")
+
+        for line in status_res.stdout.splitlines():
+            if "IP4.ADDRESS" in line:
+                # Split by first colon
+                parts = line.split(":", 1)
+                if len(parts) == 2:
+                    val = parts[1].strip()
+                    # Remove CIDR if present
+                    ip = val.split("/")[0]
+                    break 
+
+        # 3. Get Signal and Frequency from 'dev wifi list' (Using Terse)
+        wifi_res = subprocess.run(
+            [NMCLI, "-t", "-f", "SIGNAL,FREQ,IN-USE,SSID", "dev", "wifi", "list"],
+            capture_output=True,
+            text=True
+        )
+        
+        # Log first few lines of wifi list
+        logger.warning(f"[WIFI DEBUG] Wifi List Sample: {wifi_res.stdout[:200].replace(chr(10), ' | ')}")
+
+        for line in wifi_res.stdout.splitlines():
+            # Format: SIGNAL:FREQ:IN-USE:SSID
+            # 70:2422 MHz:*:CASGLOBALS
+            # Using SSID fallback as well
+            parts = line.split(":")
+            if len(parts) >= 4:
+                s_str = parts[0]
+                f_str = parts[1]
+                in_use = parts[2]
+                row_ssid = parts[3]
+                
+                # Check for active flag OR matching SSID
+                # Note: SSID match is risky if multiple APs with same SSID, but better than nothing.
+                if in_use == "*" or (ssid and row_ssid == ssid):
+                     if s_str.isdigit():
+                         signal = int(s_str)
+                     freq = f_str.replace("\\:", ":") 
+                     # Prefer the one with '*' if we haven't found it yet, or overwrite?
+                     # If we found '*', break. If we found SSID, keep it but continue looking for '*'?
+                     if in_use == "*":
+                         break
+        
+        logger.warning(f"[WIFI DEBUG] Final Parsed - IP: {ip}, Signal: {signal}, Freq: {freq}")
+
+        return WifiStatusResponse(
+            connected=True,
+            ssid=ssid,
+            ip_address=ip,
+            signal_strength=signal,
+            frequency=freq,
+            device=device
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting wifi status: {e}")
+        return WifiStatusResponse(connected=False, ssid=None, ip_address=None, signal_strength=None, frequency=None, device=None)
+
+# Wifi Endpoints
+@router.get("/wifi/scan", response_model=List[WifiNetwork])
+def scan_wifi(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Scan for available Wifi networks."""
+    try:
+        # Rescan first
+        subprocess.run([NMCLI, "dev", "wifi", "rescan"], capture_output=True)
+        
+        result = subprocess.run(
+            [NMCLI, "-t", "-f", "SSID,BSSID,SIGNAL,SECURITY,IN-USE,BARS", "dev", "wifi", "list"],
+            capture_output=True,
+            text=True
+        )
+        
+        networks = []
+        seen_ssids = set()
+        
+        def parse_terse(line):
+            row = []
+            curr = ""
+            escape = False
+            for char in line:
+                if escape:
+                    curr += char
+                    escape = False
+                elif char == '\\':
+                    escape = True
+                elif char == ':':
+                    row.append(curr)
+                    curr = ""
+                else:
+                    curr += char
+            row.append(curr)
+            return row
+            
+        for line in result.stdout.splitlines():
+            row = parse_terse(line)
+            if len(row) >= 6:
+                ssid = row[0]
+                if not ssid: continue # hidden network
+                
+                # Dedup by SSID, keep strongest
+                if ssid in seen_ssids: continue
+                seen_ssids.add(ssid)
+                
+                networks.append(WifiNetwork(
+                    ssid=ssid,
+                    bssid=row[1],
+                    signal=int(row[2]) if row[2].isdigit() else 0,
+                    security=row[3],
+                    in_use=(row[4] == "*"),
+                    bars=row[5]
+                ))
+                
+        return sorted(networks, key=lambda x: x.signal, reverse=True)
+
+    except Exception as e:
+        print(f"Wifi scan error: {e}")
+        return []
+
+@router.get("/wifi/status", response_model=WifiStatusResponse)
+def get_wifi_status_endpoint(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return get_wifi_status_info()
+
+@router.post("/wifi/connect")
+def connect_wifi(
+    connection: WifiConnectRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Connect to a Wifi network."""
+    try:
+        # Delete existing connection with same name to avoid duplicates
+        subprocess.run([NMCLI, "con", "delete", connection.ssid], capture_output=True)
+        
+        cmd = [NMCLI, "dev", "wifi", "connect", connection.ssid, "password", connection.password]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            raise HTTPException(status_code=400, detail=f"Failed to connect: {result.stderr}")
+            
+        return {"success": True, "message": f"Connected to {connection.ssid}"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/wifi/disconnect")
+def disconnect_wifi(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Disconnect current Wifi."""
+    try:
+        status = get_wifi_status_info()
+        if status.connected and status.device:
+            result = subprocess.run([NMCLI, "dev", "disconnect", status.device], capture_output=True, text=True)
+            if result.returncode != 0:
+                raise Exception(result.stderr)
+            return {"success": True, "message": "Disconnected"}
+        else:
+             return {"success": False, "message": "Not connected"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 class NetworkInterface(BaseModel):
     name: str
     mac_address: Optional[str]
@@ -404,3 +643,22 @@ def test_internet_connectivity(
     return test_connectivity()
     """Test internet connectivity by pinging 8.8.8.8."""
     return test_connectivity()
+
+@router.post("/wifi/disconnect")
+def disconnect_wifi(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Disconnect current Wifi."""
+    try:
+        status = get_wifi_status_info()
+        if status.connected and status.device:
+            result = subprocess.run([NMCLI, "dev", "disconnect", status.device], capture_output=True, text=True)
+            if result.returncode != 0:
+                raise Exception(result.stderr)
+            return {"success": True, "message": "Disconnected"}
+        else:
+             return {"success": False, "message": "Not connected"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+

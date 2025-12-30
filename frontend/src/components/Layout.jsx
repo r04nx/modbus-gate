@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Server, Tag, Settings, Activity, FileText, Network, Terminal, Download, Database, LogOut } from 'lucide-react';
+import { LayoutDashboard, Server, Tag, Settings, Activity, FileText, Network, Terminal, Download, Database, LogOut, ChevronLeft, ChevronRight } from 'lucide-react';
 import clsx from 'clsx';
 import api from '../services/api';
 
@@ -8,6 +8,7 @@ const Layout = ({ children }) => {
     const location = useLocation();
     const navigate = useNavigate();
     const [terminalEnabled, setTerminalEnabled] = useState(false);
+    const [collapsed, setCollapsed] = useState(false);
 
     const handleLogout = () => {
         localStorage.removeItem('auth');
@@ -63,29 +64,42 @@ const Layout = ({ children }) => {
     navItems.push({ path: '/settings', label: 'Settings', icon: Settings });
 
     return (
-        <div className="flex h-screen bg-background overflow-hidden">
+        <div className="flex h-screen bg-background overflow-hidden transition-all duration-300">
             {/* Sidebar */}
-            <aside className="w-64 bg-surface/50 backdrop-blur-xl border-r border-surfaceHighlight flex flex-col shadow-glow z-20">
-                <div className="p-6 flex items-center gap-3 border-b border-surfaceHighlight/50">
-                    <div className="w-10 h-10 bg-gradient-to-br from-primary to-accent rounded-xl flex items-center justify-center shadow-lg">
+            <aside className={clsx(
+                "bg-surface/50 backdrop-blur-xl border-r border-surfaceHighlight flex flex-col shadow-glow z-20 transition-all duration-300 relative",
+                collapsed ? "w-20" : "w-64"
+            )}>
+                {/* Collapse Toggle Button */}
+                <button
+                    onClick={() => setCollapsed(!collapsed)}
+                    className="absolute -right-3 top-20 bg-surface border border-surfaceHighlight text-text-secondary hover:text-white p-1 rounded-full shadow-lg z-50 transform transition-transform hover:scale-110"
+                >
+                    {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+                </button>
+
+                <div className={clsx("p-6 flex items-center gap-3 border-b border-surfaceHighlight/50 overflow-hidden", collapsed ? "justify-center px-0" : "")}>
+                    <div className="min-w-[40px] w-10 h-10 bg-gradient-to-br from-primary to-accent rounded-xl flex items-center justify-center shadow-lg">
                         <Activity className="text-white" size={24} />
                     </div>
-                    <div className="flex flex-col">
-                        <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400 leading-none">
-                            VistaIOT
-                        </h1>
-                        <a
-                            href="https://spit.ac.in"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xl font-bold text-primary tracking-widest opacity-90 mt-1 hover:opacity-100 hover:text-accent transition-all"
-                        >
-                            SP-IT
-                        </a>
-                    </div>
+                    {!collapsed && (
+                        <div className="flex flex-col whitespace-nowrap overflow-hidden transition-opacity duration-300">
+                            <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400 leading-none">
+                                VistaIOT
+                            </h1>
+                            <a
+                                href="https://spit.ac.in"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xl font-bold text-primary tracking-widest opacity-90 mt-1 hover:opacity-100 hover:text-accent transition-all"
+                            >
+                                SP-IT
+                            </a>
+                        </div>
+                    )}
                 </div>
 
-                <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+                <nav className="flex-1 p-4 space-y-2 overflow-y-auto overflow-x-hidden">
                     {navItems.map((item) => {
                         const Icon = item.icon;
                         const isActive = location.pathname === item.path;
@@ -97,12 +111,14 @@ const Layout = ({ children }) => {
                                     'flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group',
                                     isActive
                                         ? 'bg-primary/10 text-primary shadow-[0_0_20px_rgba(59,130,246,0.15)] border border-primary/20'
-                                        : 'text-text-secondary hover:bg-surfaceHighlight/30 hover:text-white hover:translate-x-1'
+                                        : 'text-text-secondary hover:bg-surfaceHighlight/30 hover:text-white hover:translate-x-1',
+                                    collapsed ? 'justify-center px-2' : ''
                                 )}
+                                title={collapsed ? item.label : undefined}
                             >
-                                <Icon size={20} className={clsx('transition-colors', isActive ? 'text-primary' : 'group-hover:text-white')} />
-                                <span className="font-medium">{item.label}</span>
-                                {isActive && (
+                                <Icon size={20} className={clsx('transition-colors min-w-[20px]', isActive ? 'text-primary' : 'group-hover:text-white')} />
+                                {!collapsed && <span className="font-medium whitespace-nowrap overflow-hidden">{item.label}</span>}
+                                {isActive && !collapsed && (
                                     <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary shadow-[0_0_8px_currentColor]" />
                                 )}
                             </Link>
@@ -110,39 +126,51 @@ const Layout = ({ children }) => {
                     })}
                 </nav>
 
-                <div className="p-4 border-t border-surfaceHighlight/50">
-                    <div className="bg-surfaceHighlight/20 rounded-xl p-4 border border-surfaceHighlight/30">
-                        <div className="flex items-center gap-3 mb-2">
+                <div className="p-4 border-t border-surfaceHighlight/50 overflow-hidden">
+                    <div className={clsx("bg-surfaceHighlight/20 rounded-xl p-4 border border-surfaceHighlight/30 transition-all duration-300", collapsed ? "p-2 bg-transparent border-0 flex flex-col items-center" : "")}>
+
+                        {!collapsed ? (
+                            <>
+                                <div className="flex items-center gap-3 mb-2">
+                                    <div className={clsx(
+                                        "w-2 h-2 rounded-full animate-pulse",
+                                        systemStatus === 'online' ? "bg-success" :
+                                            systemStatus === 'offline' ? "bg-error" : "bg-warning"
+                                    )} />
+                                    <span className={clsx(
+                                        "text-xs font-medium",
+                                        systemStatus === 'online' ? "text-success" :
+                                            systemStatus === 'offline' ? "text-error" : "text-warning"
+                                    )}>
+                                        {systemStatus === 'online' ? 'System Online' :
+                                            systemStatus === 'offline' ? 'System Offline' : 'Connecting...'}
+                                    </span>
+                                </div>
+                                {systemError && (
+                                    <p className="text-[10px] text-error mb-1 truncate" title={systemError}>
+                                        {systemError}
+                                    </p>
+                                )}
+                                <p className="text-xs text-text-muted">v1.0.0 • Stable</p>
+                            </>
+                        ) : (
                             <div className={clsx(
-                                "w-2 h-2 rounded-full animate-pulse",
+                                "w-3 h-3 rounded-full animate-pulse",
                                 systemStatus === 'online' ? "bg-success" :
                                     systemStatus === 'offline' ? "bg-error" : "bg-warning"
-                            )} />
-                            <span className={clsx(
-                                "text-xs font-medium",
-                                systemStatus === 'online' ? "text-success" :
-                                    systemStatus === 'offline' ? "text-error" : "text-warning"
-                            )}>
-                                {systemStatus === 'online' ? 'System Online' :
-                                    systemStatus === 'offline' ? 'System Offline' : 'Connecting...'}
-                            </span>
-                        </div>
-                        {systemError && (
-                            <p className="text-[10px] text-error mb-1 truncate" title={systemError}>
-                                {systemError}
-                            </p>
+                            )} title={systemStatus === 'online' ? 'System Online' : systemStatus === 'offline' ? 'System Offline' : 'Connecting...'} />
                         )}
-                        <p className="text-xs text-text-muted">v1.0.0 • Stable</p>
                     </div>
                 </div>
 
-                <div className="p-4 border-t border-gray-700">
+                <div className="p-4 border-t border-gray-700 overflow-hidden">
                     <button
                         onClick={handleLogout}
-                        className="flex items-center space-x-3 px-4 py-3 text-gray-300 hover:bg-gray-700 rounded-lg transition-colors w-full"
+                        className={clsx("flex items-center space-x-3 px-4 py-3 text-gray-300 hover:bg-gray-700 rounded-lg transition-colors w-full", collapsed ? "justify-center px-2" : "")}
+                        title={collapsed ? "Logout" : undefined}
                     >
-                        <LogOut size={20} />
-                        <span>Logout</span>
+                        <LogOut size={20} className="min-w-[20px]" />
+                        {!collapsed && <span>Logout</span>}
                     </button>
                 </div>
             </aside>
