@@ -1,8 +1,13 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from app.api.api import api_router
 from app.core.database import engine, Base
+from app.core.license import verify_license
 import logging
+import os
 
 # Configure logging
 from app.core.log_handler import memory_handler
@@ -19,26 +24,15 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="VistaIOT Backend")
 
-# CORS
-# CORS
-# Allow all origins with credentials using regex
-app.add_middleware(
-    CORSMiddleware,
-    allow_origin_regex="https?://.*",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 app.include_router(api_router, prefix="/api/v1")
-
-from fastapi import Request, status
-from fastapi.responses import JSONResponse
-from app.core.license import verify_license
 
 @app.middleware("http")
 async def check_license(request: Request, call_next):
-    # Allow health checks or license status endpoints if needed
+    # Allow CORS preflight requests
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
+    # Allow health checks or license status endpoints
     if request.url.path == "/api/v1/system/license-status":
         return await call_next(request)
         
@@ -53,6 +47,16 @@ async def check_license(request: Request, call_next):
             }
         )
     return await call_next(request)
+
+# CORS (configured LAST so it runs FIRST as the outermost layer)
+# Allow all origins with credentials using regex
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex="https?://.*",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.on_event("startup")
 async def startup_event():

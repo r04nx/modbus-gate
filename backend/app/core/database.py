@@ -12,7 +12,11 @@ engine = create_engine(
     connect_args={
         "check_same_thread": False,
         "timeout": 30  # Increase timeout to 30 seconds
-    }
+    },
+    pool_size=20,     # Increase pool size (default 5)
+    max_overflow=40,  # Increase max overflow (default 10)
+    pool_timeout=30,  # Wait up to 30s for a connection
+    pool_recycle=1800 # Recycle connections every 30 mins
 )
 
 # Enable Write-Ahead Logging (WAL) for better concurrency

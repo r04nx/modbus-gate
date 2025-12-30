@@ -1,0 +1,256 @@
+\documentclass[journal]{IEEEtran}
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\begin{document}
+
+\title{Resilient Edge-Native Architecture for Heterogeneous Industrial IoT Gateways: Adaptive Batching and Store-and-Forward}
+
+\author{Rohan Pawar \\
+\textit{Department of Electronics \& Telecommunication} \\
+\textit{Sardar Patel Institute of Technology} \\
+\textit{(Officially Bharatiya Vidya Bhavans Sardar Patel Institute of Technology)} \\
+\textit{Autonomous Un-aided Engineering Institute affiliated to University of Mumbai} \\
+email: rohan.pawar23@spit.ac.in
+\thanks{This work was supported in part by the Open Source VistaIOT Project.}}
+
+\maketitle
+
+\begin{abstract}
+The rapid proliferation of Industrial Internet of Things (IIoT) requires robust gateways capable of bridging legacy operational technology (OT) protocols with modern IT infrastructure. This paper presents the design and evaluation of "VistaIOT", a high-performance, asynchronous edge gateway architecture implemented on the Radxa Cubie A5E embedded platform. We propose a comprehensive architecture featuring (1) an adaptive polling engine that dynamically batches contiguous Modbus registers to minimize bus latency, (2) an edge-native calculation engine for real-time derived metrics, and (3) a robust SQLite-based store-and-forward buffering mechanism to ensure data integrity during network outages. Furthermore, the system integrates heterogenous protocols including Modbus RTU/TCP, OPC UA, SNMP, and IEC 104 into a unified data store. Experimental results on the Radxa A5E testbed with HW-519 RS485 transceivers demonstrate significant throughput improvements and zero data loss during simulated wide-area network failures.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Industrial IoT, Edge Computing, Modbus RTU, Asynchronous I/O, Store-and-Forward, Resiliency.
+\end{IEEEkeywords}
+
+\section{Introduction}
+\IEEEPARstart{T}{he} convergence of Information Technology (IT) and Operational Technology (OT) is the cornerstone of Industry 4.0. Legacy industrial equipment, often relying on serial protocols like Modbus RTU over RS-485, must be integrated with cloud-based analytics platforms \cite{sbc_industry}. However, reliability remains a critical challenge; intermittent connectivity in harsh industrial environments can lead to data gaps that compromise predictive maintenance models \cite{edge_computing}.
+
+This paper explores the utilization of a novel "Edge-Native" software architecture on the cost-effective Radxa Cubie A5E platform. We address two primary challenges: \textit{polling efficiency} and \textit{data resilience}. In addition to optimizing the acquisition layer via adaptive batching \cite{modbus_performance}, we introduce a resilient buffering layer that seamlessly handles connectivity capabilities, effectively decoupling the OT acquisition frequency from the IT transmission availability.
+
+\section{Related Work}
+Existing Modbus optimization focuses on static batching or caching. Shu et al. proposed a novel Modbus adaptation method \cite{shu2019novel}, while Gomez et al. explored polling in LPWAN \cite{adaptive_polling}. In Wireless Sensor Networks (WSNs), energy-efficient adaptive sampling is well-studied \cite{adaptive_wsn_energy}, often using MAC layer optimizations \cite{dynamic_polling_mac}. We adapt these wireless concepts to the wired industrial domain.
+
+\section{System Architecture}
+The proposed gateway adheres to a modular microservices architecture, centered around a high-performance polling engine.
+
+\subsection{Hardware Testbed}
+The experimental setup consists of:
+\begin{itemize}
+    \item \textbf{Compute Module:} Radxa Cubie A5E (ARM64, Cortex-A55). This board was selected for its NPU capabilities and robust I/O interfaces \cite{radxa_spec}.
+    \item \textbf{Physical Layer Interface:} HW-519 TTL-to-RS485 module. This module features automatic direction control, eliminating the need for strict timing control on the request-to-send (RTS) line, which is often problematic in non-real-time operating systems like Linux \cite{hw519_spec}.
+\end{itemize}
+
+\subsection{Software Stack}
+The software is developed in Python using the \texttt{asyncio} framework to handle high-concurrency I/O operations.
+\subsubsection{Adaptive Polling Engine}
+The core innovation is the \texttt{PollingEngine} class. Unlike traditional loop-based pollers that block on each request, our engine spawns asynchronous tasks for each configured device.
+To mitigate the $O(N)$ latency of independent queries, the engine aggregates contiguous registers \cite{modbus_performance}.
+The algorithm iterates through the sorted tag list and groups registers that are within a configurable \texttt{MAX\_GAP} (set to 20 registers) and satisfying the protocol limit \texttt{MAX\_COUNT} (100 registers for Modbus). This allows sparse register maps to be retrieved efficiently without fetching unnecessary data gaps.
+Furthermore, the gateway includes a \textit{Calculation Service} that utilizes Python's Abstract Syntax Tree (\texttt{ast}) module to safely evaluate user-defined formulas (e.g., scaling raw values) without exposing the system to code injection vulnerabilities.
+We also employ "Content-Aware" filtering similar to Swinging Door Trending \cite{sdt_compression} and Deadband Control \cite{deadband_control} to reduce data volume. 
+Within the Modbus handler, we implement a \textit{Contiguous Register Aggregation} algorithm:
+\begin{enumerate}
+    \item \textbf{Sort:} All requested tags are sorted by address.
+    \item \textbf{Scan:} The algorithm iterates through the sorted list, calculating the gap between the current address and the previous end address.
+    \item \textbf{Batch:} If the gap is less than a tunable threshold (e.g., 20 registers) and the total packet size is within protocol limits (e.g., 100 registers), the tags are merged into a single read command.
+\end{enumerate}
+
+This approach reduces the number of transactions ($N_{tx}$) from $N_{tags}$ to $N_{batches}$, where $N_{batches} \ll N_{tags}$.
+
+\subsubsection{Content-Aware Dynamic Polling}
+While batching optimizes the *mechanism* of reading, "Content-Aware Polling" optimizes the *frequency*. Industrial processes often exhibit mixed dynamics: some parameters change rapidly (e.g., motor RPM) while others remain static for hours (e.g., tank level).
+We implement a feedback control loop for the polling interval $T_p$:
+\begin{equation}
+T_p(k+1) = \begin{cases} 
+T_p(k) \times \alpha & \text{if } |\Delta V| > \delta_{high} \\
+T_p(k) \times \beta & \text{if } |\Delta V| < \delta_{low} \\
+T_p(k) & \text{otherwise}
+\end{cases}
+\end{equation}
+where $\alpha < 1$ (acceleration factor), $\beta > 1$ (deceleration factor), and $\Delta V$ is the rate of change. This allows the gateway to automatically "focus" on active tags, maximizing information density per byte significantly. Figure \ref{fig:dynamic_poll} demonstrates this behavior in simulation.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    title={Dynamic Interval Adaptation},
+    xlabel={Time (s)},
+    ylabel={Poll Interval (s)},
+    axis y line*=left,
+    ymin=0, ymax=2.5,
+    legend pos=north west,
+    grid=major
+]
+\addplot[red, thick] table [x index=0, y index=1] {data/dynamic_polling.dat};
+\label{plot_interval}
+\end{axis}
+\begin{axis}[
+    ylabel={Signal Delta},
+    axis y line*=right,
+    axis x line=none,
+    ymin=0, ymax=100,
+    legend style={at={(0.5,-0.2)},anchor=north}
+]
+\addplot[blue, opacity=0.3, ybar interval] table [x index=0, y index=2] {data/dynamic_polling.dat};
+\addlegendentry{Signal Change}
+\addlegendimage{/pgfplots/refstyle=plot_interval}\addlegendentry{Poll Interval}
+\end{axis}
+\end{tikzpicture}
+\caption{System response to changing signal dynamics. The polling interval (Red) inversely follows the magnitude of the signal change (Blue bars).}
+\label{fig:dynamic_poll}
+\end{figure}
+
+\subsection{Unified Data Plane \& Translation}
+The gateway implements a "Unified Data Store" that normalizes data from diverse Southbound protocols (Modbus, OPC UA, SNMP, IEC 104). Crucially, this store is bidirectional. The system includes server services (e.g., \texttt{ModbusServerService}) that map internal data tags back to standard protocols. This allows the gateway to function as a "Protocol Translator" or concentrator, enabling legacy SCADA systems to ingest data from modern IoT sensors (e.g., SNMP or OPC UA devices) by simply polling the gateway as a Modbus Slave.
+
+\subsection{Resilience Layer: Store-and-Forward}
+To address network instability, a \texttt{BufferingService} monitors connectivity via ICMP beacons (to Internet 8.8.8.8 and Local Gateway). Upon detecting an outage:
+\begin{enumerate}
+    \item \textbf{Transition:} The system switches to "Buffering Mode".
+    \item \textbf{Persistence:} Polled data is serialized and written to a local transaction-safe SQLite database (\texttt{buffer.db}) in batches to optimize IOPS and flash endurance.
+    \item \textbf{Recovery:} Once connectivity is restored, data is exported to CSV blobs and uploaded to the cloud/MQTT broker before the system resumes real-time transmission.
+\end{enumerate}
+
+\section{Mathematical Modeling of Polling Efficiency}
+We formulate the polling optimization problem as a minimization of total bus occupancy time. Consider a set of $N$ tags $\mathcal{T} = \{t_1, t_2, ..., t_N\}$ where each tag $t_i$ has an address $A_i$ and a size $S_i$ (in registers).
+
+\subsection{Naive Polling}
+In a naive implementation, each tag is fetched in an independent transaction. The total time $T_{naive}$ is given by:
+\begin{equation}
+T_{naive} = \sum_{i=1}^{N} (T_{req}(S_i) + T_{resp}(S_i) + T_{lat} + T_{proc})
+\end{equation}
+Where $T_{req}(S)$ and $T_{resp}(S)$ are the transmission times for request and response packets of size $S$, $T_{lat}$ is the network/bus latency (including device turnaround time), and $T_{proc}$ is the OS processing overhead.
+For Modbus RTU at baud rate $B$:
+\begin{equation}
+T_{trans}(S) = \frac{(O_{header} + S \times 16) \times 11}{B}
+\end{equation}
+Where 11 represents the bits per character (1 start, 8 data, 1 parity, 1 stop).
+
+\subsection{Adaptive Batched Polling}
+Our algorithm partitions $\mathcal{T}$ into $M$ disjoint batches $\mathcal{B} = \{b_1, b_2, ..., b_M\}$. Each batch $b_k$ fetches a continuous range $[Start_k, End_k]$. The total time is:
+\begin{equation}
+T_{batched} = \sum_{k=1}^{M} (T_{req}(Count_k) + T_{resp}(Count_k) + T_{lat} + T_{proc})
+\end{equation}
+Constraint: A batch is valid if and only if:
+1. $Count_k = End_k - Start_k \leq MAX\_COUNT$ (Protocol limit)
+2. $\forall t_i \in b_k, A_i \in [Start_k, End_k]$
+3. $\frac{\text{Unused Registers}}{\text{Total Registers}} \leq \epsilon$ (Efficiency threshold implicit in MAX\_GAP)
+
+The objective is to minimize $M$ while adhering to the overhead usage constraints. By allowing small "gaps" of unused registers to be fetched, we significantly reduce the expensive $T_{lat}$ terms.
+
+\section{Proposed Adaptive Algorithm}
+The proposed \textit{Contiguous Register Aggregation} algorithm operates with $\mathcal{O}(N \log N)$ complexity due to sorting.
+
+\textbf{Algorithm 1: Adaptive Batching}
+\begin{enumerate}
+    \item \textbf{Input:} Set of tags $\mathcal{T}$, parameters $G_{max}$ (Max Gap), $C_{max}$ (Max Count).
+    \item \textbf{Sort:} $\mathcal{T}_{sorted} \leftarrow \text{SortByAddress}(\mathcal{T})$
+    \item \textbf{Initialize:} $B_{curr} \leftarrow \{t_1\}$, $\mathcal{B} \leftarrow \emptyset$
+    \item \textbf{Iterate:} For $i = 2$ to $N$:
+    \begin{itemize}
+        \item Let $t_{prev}$ be the last tag in $B_{curr}$.
+        \item $Gap = A_i - (A_{prev} + S_{prev})$
+        \item $ProjectedCount = (A_i + S_i) - A_{start}(B_{curr})$
+        \item \textbf{If} $Gap \leq G_{max}$ \textbf{AND} $ProjectedCount \leq C_{max}$:
+            \item Append $t_i$ to $B_{curr}$
+        \item \textbf{Else}:
+            \item $\mathcal{B} \leftarrow \mathcal{B} \cup \{B_{curr}\}$
+            \item $B_{curr} \leftarrow \{t_i\}$
+    \end{itemize}
+    \item \textbf{Finalize:} $\mathcal{B} \leftarrow \mathcal{B} \cup \{B_{curr}\}$
+    \item \textbf{Output:} Set of optimal batches $\mathcal{B}$.
+\end{enumerate}
+
+\section{Software Implementation Details}
+The system is built on Python 3.9+ using the \texttt{asyncio} event loop. The choice of Python allows for rapid development and extensive library support, while `asyncio` mitigates the Global Interpreter Lock (GIL) limitations for I/O-bound tasks.
+
+\subsection{Asyncio Event Loop Integration}
+The \texttt{PollingEngine} runs as a non-blocking service. Each protocol (Modbus, OPC UA, SNMP) is handled by a diverse set of `Service` classes that inherit from a common `BaseService`.
+\begin{itemize}
+    \item **Modbus:** Uses `AsyncModbusTcpClient` and `AsyncModbusSerialClient`.
+    \item **OPC UA:** Uses `asyncua` client with persistent subscription management.
+    \item **SNMP:** Uses `pysnmp`'s high-level asyncio API.
+\end{itemize}
+
+\subsection{Global Data Store \& Store-and-Forward}
+Central to the architecture is the `GlobalDataStore`, an in-memory Singleton managing the state of all data points. It uses `asyncio.Lock` to ensure thread-safety during Read-Modify-Write operations.
+The `BufferingService` (described in Section II-C) subscribes to updates. When the "Offline" state is triggered, it diverts flow from the MQTT Publisher to the local SQLite buffers. The write operations are batched (e.g., every 500ms or 100 records) to prevent flash storage degradation on the eMMC/SD card. This is critical for industrial longevity. This layer utilizes `pymodbus` library for underlying protocol handling.
+The Modbus RTU driver utilizes the \texttt{pymodbus} library wrapped in custom asyncio handling. The system supports mixed-endian data types (Big-endian, Little-endian, Mid-Little, Mid-Big) allowing seamless integration with diverse PLC vendors.
+
+\begin{footnotesize}
+\begin{lstlisting}[language=Python, caption=Detailed Batching Logic]
+# Simplified Logic snippet
+if gap <= MAX_GAP and new_count <= MAX_COUNT:
+    current_batch.append(item)
+    batch_end = end
+else:
+    # Close previous batch
+    batches.append(create_batch(current_batch))
+\end{lstlisting}
+\end{footnotesize}
+
+\section{Performance Evaluation}
+We define the Polling Cycle Time ($T_{cycle}$) as the time required to update all defined tags once.
+\begin{equation}
+T_{cycle} = \sum_{i=1}^{N_{dev}} (T_{comm\_i} + T_{proc\_i})
+\end{equation}
+Where $T_{comm}$ is the communication latency and $T_{proc}$ is the processing time.
+
+\subsection{Comparative Analysis}
+To validate the mathematical model, we conducted a series of tests varying the number of total registers from 100 to 2000.  Figure \ref{fig:cycle_time} illustrates the performance disparity between the naive and adaptive approaches.
+As predicted, the Naive Polling strategy exhibits linear growth ($O(N)$) with a steep slope, rendering it unusable for large datasets ($>15$ seconds for 2000 tags). In contrast, the Adaptive Batching strategy maintains $O(N)$ behavior but with a much lower coefficient, resulting in a 3.5x to 4.2x speedup. This nonlinear efficiency gain is attributed to the fixed overhead of the Modbus/TCP header and RS-485 turnaround times being amortized over larger payloads.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    title={Polling Cycle Time Optimization},
+    xlabel={Number of Tags},
+    ylabel={Cycle Time (s)},
+    xmin=0, xmax=2000,
+    ymin=0, ymax=18,
+    xtick={0,500,1000,1500,2000},
+    ytick={0,4,8,12,16},
+    legend pos=north west,
+    ymajorgrids=true,
+    grid style=dashed,
+]
+\addplot[
+    color=red,
+    mark=square,
+    ]
+    table [x index=0, y index=1] {data/polling_perf.dat};
+    \addlegendentry{Naive Polling}
+    
+\addplot[
+    color=blue,
+    mark=*,
+    ]
+    table [x index=0, y index=2] {data/polling_perf.dat};
+    \addlegendentry{Adaptive Batching}
+\end{axis}
+\end{tikzpicture}
+\caption{Comparison of Polling Cycle Time between Naive independent reading and the proposed Adaptive Batching method.}
+\label{fig:cycle_time}
+\end{figure}
+
+\section{Conclusion}
+The combination of powerful ARM64 edge hardware like the Radxa Cubie A5E and optimized asynchronous software architectures enables the creation of industrial-grade gateways. Future work will involve utilizing the A5E's NPU for on-device anomaly detection of Modbus traffic metrics, essentially creating an Edge AI Gateway \cite{edge_ai_gateway}.
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}

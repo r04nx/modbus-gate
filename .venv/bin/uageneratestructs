@@ -1,0 +1,8 @@
+#!/media/rohan/abb2b798-e7f7-405f-b75c-90c1853213b3/home/rohan/Public/warp/modbus-gate/.venv/bin/python3
+# -*- coding: utf-8 -*-
+import re
+import sys
+from asyncua.tools import uageneratestructs
+if __name__ == '__main__':
+    sys.argv[0] = re.sub(r'(-script\.pyw|\.exe)?$', '', sys.argv[0])
+    sys.exit(uageneratestructs())
