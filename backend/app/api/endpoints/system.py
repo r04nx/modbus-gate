@@ -81,7 +81,6 @@ def update_hostname(
     db: Session = Depends(get_db)
 ):
     # Update system hostname (requires root, might need sudo or specific permissions)
-    # For now, just update DB and maybe try to set it if running as root
     set_setting("hostname", data.hostname, db)
     try:
         subprocess.run(["hostnamectl", "set-hostname", data.hostname], check=True)
@@ -105,15 +104,27 @@ def update_ssh_status(
     db: Session = Depends(get_db)
 ):
     set_setting("ssh_enabled", "true" if data.enabled else "false", db)
-    # In a real system, we would start/stop ssh service here
-    # subprocess.run(["systemctl", "start" if data.enabled else "stop", "ssh"], check=False)
+    try:
+        action = "start" if data.enabled else "stop"
+        subprocess.run(["systemctl", action, "ssh"], check=False)
+        if data.enabled:
+            subprocess.run(["systemctl", "enable", "ssh"], check=False)
+        else:
+            subprocess.run(["systemctl", "disable", "ssh"], check=False)
+    except Exception as e:
+        logger.error(f"Failed to update SSH service: {e}")
+        
     return {"status": "success", "enabled": data.enabled}
 
 @router.get("/ssh/keys")
 def get_ssh_keys(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    # In a real system, list keys from authorized_keys
-    # For now, return empty list or mock
-    return []
+    ssh_dir = os.path.expanduser("~/.ssh")
+    keys = []
+    if os.path.exists(ssh_dir):
+        for filename in os.listdir(ssh_dir):
+            if filename.endswith(".pub"):
+                keys.append(filename)
+    return keys
 
 @router.post("/ssh/keys")
 async def upload_ssh_key(
@@ -121,9 +132,26 @@ async def upload_ssh_key(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # Append to authorized_keys
+    ssh_dir = os.path.expanduser("~/.ssh")
+    if not os.path.exists(ssh_dir):
+        os.makedirs(ssh_dir)
+        os.chmod(ssh_dir, 0o700)
+    
+    file_path = os.path.join(ssh_dir, file.filename)
     content = await file.read()
-    # TODO: Implement actual key saving
+    
+    with open(file_path, "wb") as f:
+        f.write(content)
+    os.chmod(file_path, 0o600)
+    
+    # Append to authorized_keys if it's a public key
+    if file.filename.endswith(".pub"):
+        auth_keys = os.path.join(ssh_dir, "authorized_keys")
+        with open(auth_keys, "ab") as f:
+            f.write(b"\n")
+            f.write(content)
+        os.chmod(auth_keys, 0o600)
+
     return {"status": "success"}
 
 @router.delete("/ssh/keys/{key_name}")
@@ -132,7 +160,10 @@ def delete_ssh_key(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # Remove from authorized_keys
+    ssh_dir = os.path.expanduser("~/.ssh")
+    file_path = os.path.join(ssh_dir, key_name)
+    if os.path.exists(file_path):
+        os.remove(file_path)
     return {"status": "success"}
 
 # --- Terminal ---
@@ -151,6 +182,11 @@ def update_terminal_status(
     db: Session = Depends(get_db)
 ):
     set_setting("terminal_enabled", "true" if data.enabled else "false", db)
+    try:
+        action = "start" if data.enabled else "stop"
+        subprocess.run(["systemctl", action, "ttyd"], check=False) # Assuming ttyd service
+    except Exception as e:
+        logger.error(f"Failed to update Terminal service: {e}")
     return {"status": "success", "enabled": data.enabled}
 
 # --- Update ---
@@ -182,21 +218,22 @@ def update_update_settings(
 
 @router.post("/update/check")
 def check_for_updates(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    # Mock update check
-    return {"has_updates": False, "message": "System is up to date"}
+    from ...services.auto_update_service import auto_update_service
+    branch = get_setting("auto_update_branch", db, "production")
+    has_update, message = auto_update_service.check_for_updates(branch)
+    return {"has_updates": has_update, "message": message}
 
 @router.post("/update/trigger")
 def trigger_update(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    # Mock update trigger
-    return {"success": True, "message": "Update started"}
+    from ...services.auto_update_service import auto_update_service
+    branch = get_setting("auto_update_branch", db, "production")
+    success, message = auto_update_service.perform_update(branch, db)
+    return {"success": success, "message": message}
 
 @router.get("/update/repository-info")
 def get_repo_info(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return {
-        "available": True,
-        "current_branch": "production",
-        "current_commit": "HEAD"
-    }
+    from ...services.auto_update_service import auto_update_service
+    return auto_update_service.get_repository_info()
 
 # --- COM Ports Logic ---
 
