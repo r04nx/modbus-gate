@@ -295,37 +295,88 @@ const DataStoragePolicy = () => {
 
                     {policy.auto_cleanup_enabled && (
                         <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                            {/* Cleanup Trigger */}
                             <div>
                                 <label className="block text-sm font-medium text-text-secondary mb-3">
-                                    Cleanup Threshold ({policy.cleanup_threshold || 85}%)
+                                    Cleanup Threshold (Triggers if usage &gt; {policy.cleanup_threshold || 85}%)
                                 </label>
-                                <input
-                                    type="range"
-                                    min="50"
-                                    max="95"
-                                    value={policy.cleanup_threshold || 85}
-                                    onChange={(e) => setPolicy({ ...policy, cleanup_threshold: parseInt(e.target.value) })}
-                                    className="w-full accent-orange-400 h-2 bg-surfaceHighlight/20 rounded-lg appearance-none cursor-pointer"
-                                />
+                                <div className="flex gap-4 items-center">
+                                    <input
+                                        type="range"
+                                        min="50"
+                                        max="95"
+                                        value={policy.cleanup_threshold || 85}
+                                        onChange={(e) => setPolicy({ ...policy, cleanup_threshold: parseInt(e.target.value) })}
+                                        className="flex-1 accent-orange-400 h-2 bg-surfaceHighlight/20 rounded-lg appearance-none cursor-pointer"
+                                    />
+                                    <span className="text-white font-bold w-12 text-right">{policy.cleanup_threshold || 85}%</span>
+                                </div>
                                 <div className="flex justify-between text-xs text-text-muted mt-1">
                                     <span>Aggressive (50%)</span>
                                     <span>Conservative (95%)</span>
                                 </div>
-                                <p className="text-xs text-text-muted mt-2">
-                                    Cleanup will run if disk usage exceeds this percentage.
-                                </p>
                             </div>
 
+                            {/* Schedule */}
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-text-secondary mb-2">Frequency</label>
+                                    <select
+                                        value={policy.cleanup_schedule || 'daily'}
+                                        onChange={(e) => setPolicy({ ...policy, cleanup_schedule: e.target.value })}
+                                        className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-400 transition-colors"
+                                    >
+                                        <option value="daily">Daily</option>
+                                        <option value="weekly">Weekly (Sundays)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-text-secondary mb-2">Time (24h)</label>
+                                    <input
+                                        type="time"
+                                        value={policy.cleanup_time || '03:00'}
+                                        onChange={(e) => setPolicy({ ...policy, cleanup_time: e.target.value })}
+                                        className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-400 transition-colors"
+                                    />
+                                </div>
+                            </div>
+
+                            <hr className="border-surfaceHighlight/30 my-4" />
+
+                            {/* Log Retention Policy */}
                             <div>
-                                <label className="block text-sm font-medium text-text-secondary mb-2">Schedule</label>
-                                <select
-                                    value={policy.cleanup_schedule || 'daily'}
-                                    onChange={(e) => setPolicy({ ...policy, cleanup_schedule: e.target.value })}
-                                    className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-400 transition-colors"
-                                >
-                                    <option value="daily">Daily (at 3 AM)</option>
-                                    <option value="weekly">Weekly (Sundays at 3 AM)</option>
-                                </select>
+                                <h4 className="text-white font-medium mb-3 flex items-center justify-between">
+                                    <span>Log Retention Policy</span>
+                                    <label className="relative inline-flex items-center cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            className="sr-only peer"
+                                            checked={policy.log_retention_enabled || false}
+                                            onChange={(e) => setPolicy({ ...policy, log_retention_enabled: e.target.checked })}
+                                        />
+                                        <div className="w-11 h-6 bg-surfaceHighlight/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-400"></div>
+                                    </label>
+                                </h4>
+
+                                <div className={`transition-all duration-300 ${policy.log_retention_enabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
+                                    <label className="block text-sm font-medium text-text-secondary mb-3">
+                                        Keep logs for {policy.log_retention_days || 7} days
+                                    </label>
+                                    <div className="flex gap-4 items-center">
+                                        <input
+                                            type="range"
+                                            min="1"
+                                            max="365"
+                                            value={policy.log_retention_days || 7}
+                                            onChange={(e) => setPolicy({ ...policy, log_retention_days: parseInt(e.target.value) })}
+                                            className="flex-1 accent-cyan-400 h-2 bg-surfaceHighlight/20 rounded-lg appearance-none cursor-pointer"
+                                        />
+                                        <span className="text-cyan-400 font-bold w-12 text-right">{policy.log_retention_days || 7}d</span>
+                                    </div>
+                                    <p className="text-xs text-text-muted mt-2">
+                                        Logs older than this will be permanently deleted during cleanup, saving storage space.
+                                    </p>
+                                </div>
                             </div>
                         </div>
                     )}

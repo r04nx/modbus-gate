@@ -46,8 +46,9 @@ class StoragePolicyUpdate(BaseModel):
     time_unit: Optional[TimeUnit] = None
     northbound_interface: Optional[str] = None
     auto_cleanup_enabled: Optional[bool] = None
-    cleanup_threshold: Optional[int] = None
-    cleanup_schedule: Optional[str] = None
+    cleanup_time: Optional[str] = None
+    log_retention_enabled: Optional[bool] = None
+    log_retention_days: Optional[int] = None
 
 
 class StorageUsageResponse(BaseModel):
@@ -115,6 +116,9 @@ def update_storage_policy(
     
     db.commit()
     db.refresh(policy)
+    
+    # Update System Cron
+    update_cron_job(policy)
     
     return policy
 
@@ -262,13 +266,24 @@ def update_cron_job(policy: StoragePolicy):
             os.remove(CRON_FILE)
         return
 
+    # Parse Time (Default 03:00)
+    try:
+        hour, minute = policy.cleanup_time.split(':')
+    except:
+        hour, minute = "03", "00"
+        
     # Determine schedule
-    schedule = "0 3 * * *" # Daily at 3 AM
+    schedule = f"{minute} {hour} * * *" # Daily
     if policy.cleanup_schedule == 'weekly':
-        schedule = "0 3 * * 0" # Weekly on Sunday
+        schedule = f"{minute} {hour} * * 0" # Weekly on Sunday
 
-    # Create cron content
-    cron_content = f"{schedule} root {SCRIPT_PATH} {policy.cleanup_threshold}\n"
+    # Log Retention Params
+    retention_days = policy.log_retention_days if policy.log_retention_enabled else 0
+    retention_flag = "1" if policy.log_retention_enabled else "0"
+
+    # Create cron content with retention args
+    # Args: THRESHOLD RETENTION_ENABLED RETENTION_DAYS
+    cron_content = f"{schedule} root {SCRIPT_PATH} {policy.cleanup_threshold} {retention_flag} {retention_days}\n"
     
     # Write to temp file then move (needs root)
     # We assume the service runs as root or has permission

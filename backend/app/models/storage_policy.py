@@ -32,6 +32,11 @@ class StoragePolicy(Base):
     auto_cleanup_enabled = Column(Boolean, default=False)
     cleanup_threshold = Column(Integer, default=85)  # % usage to trigger cleanup
     cleanup_schedule = Column(String, default="daily")  # 'daily', 'weekly'
+    cleanup_time = Column(String, default="03:00")  # HH:MM format
+    
+    # Log Retention Settings
+    log_retention_enabled = Column(Boolean, default=False)
+    log_retention_days = Column(Integer, default=7)
 
     def is_storage_based(self) -> bool:
         """Check if policy is storage-based"""
