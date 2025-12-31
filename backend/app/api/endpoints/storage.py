@@ -33,6 +33,10 @@ class StoragePolicyResponse(BaseModel):
     time_value: Optional[int]
     time_unit: Optional[TimeUnit]
     northbound_interface: Optional[str]
+    auto_cleanup_enabled: Optional[bool]
+    cleanup_time: Optional[str]
+    log_retention_enabled: Optional[bool]
+    log_retention_days: Optional[int]
 
     class Config:
         from_attributes = True
