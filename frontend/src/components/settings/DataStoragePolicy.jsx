@@ -14,6 +14,35 @@ const DataStoragePolicy = () => {
     const [usage, setUsage] = useState(null);
     const [bufferedFiles, setBufferedFiles] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [cleanupOptions, setCleanupOptions] = useState({
+        journal: true,
+        appLogs: true,
+        apt: true
+    });
+
+    const handleDeepCleanup = async () => {
+        if (!confirm("Are you sure you want to run deep system cleanup?")) return;
+
+        try {
+            setLoading(true);
+            const res = await api.post('/storage/manual-cleanup', {
+                clean_journal: cleanupOptions.journal,
+                clean_app_logs: cleanupOptions.appLogs,
+                clean_apt_cache: cleanupOptions.apt
+            });
+
+            // Update usage with result included
+            setUsage(prev => ({
+                ...prev,
+                cleanupResult: res.data // Backend returns result details here
+            }));
+
+        } catch (error) {
+            alert(`Cleanup failed: ${error.response?.data?.detail || error.message}`);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
         fetchPolicy();
@@ -245,6 +274,183 @@ const DataStoragePolicy = () => {
                         {loading ? 'Saving...' : 'Save Policy'}
                     </button>
                 </div>
+            </div>
+
+            {/* Auto-Cleanup Automation */}
+            <div className="bg-surfaceHighlight/10 rounded-2xl p-6 border border-surfaceHighlight/30">
+                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                    <Trash2 className="w-5 h-5 text-orange-400" />
+                    Auto-Cleanup Automation
+                </h3>
+                <div className="space-y-6">
+                    <label className="flex items-center gap-3 cursor-pointer group bg-surfaceHighlight/5 rounded-xl p-4">
+                        <input
+                            type="checkbox"
+                            checked={policy.auto_cleanup_enabled || false}
+                            onChange={(e) => setPolicy({ ...policy, auto_cleanup_enabled: e.target.checked })}
+                            className="w-4 h-4 accent-orange-400"
+                        />
+                        <span className="text-white group-hover:text-orange-400 transition-colors font-medium">Enable Automatic Cleanup</span>
+                    </label>
+
+                    {policy.auto_cleanup_enabled && (
+                        <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                            <div>
+                                <label className="block text-sm font-medium text-text-secondary mb-3">
+                                    Cleanup Threshold ({policy.cleanup_threshold || 85}%)
+                                </label>
+                                <input
+                                    type="range"
+                                    min="50"
+                                    max="95"
+                                    value={policy.cleanup_threshold || 85}
+                                    onChange={(e) => setPolicy({ ...policy, cleanup_threshold: parseInt(e.target.value) })}
+                                    className="w-full accent-orange-400 h-2 bg-surfaceHighlight/20 rounded-lg appearance-none cursor-pointer"
+                                />
+                                <div className="flex justify-between text-xs text-text-muted mt-1">
+                                    <span>Aggressive (50%)</span>
+                                    <span>Conservative (95%)</span>
+                                </div>
+                                <p className="text-xs text-text-muted mt-2">
+                                    Cleanup will run if disk usage exceeds this percentage.
+                                </p>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-text-secondary mb-2">Schedule</label>
+                                <select
+                                    value={policy.cleanup_schedule || 'daily'}
+                                    onChange={(e) => setPolicy({ ...policy, cleanup_schedule: e.target.value })}
+                                    className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-400 transition-colors"
+                                >
+                                    <option value="daily">Daily (at 3 AM)</option>
+                                    <option value="weekly">Weekly (Sundays at 3 AM)</option>
+                                </select>
+                            </div>
+                        </div>
+                    )}
+                    <button
+                        onClick={handleSave}
+                        disabled={loading}
+                        className="w-full bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 border border-orange-500/30 px-4 py-3 rounded-xl transition-all disabled:opacity-50 font-medium"
+                    >
+                        {loading ? 'Saving...' : 'Save Automation Settings'}
+                    </button>
+                </div>
+            </div>
+
+            {/* Deep System Cleanup (Manual) */}
+            <div className="bg-surfaceHighlight/10 rounded-2xl p-6 border border-surfaceHighlight/30">
+                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                    <Trash2 className="w-5 h-5 text-red-400" />
+                    Deep System Cleanup
+                </h3>
+
+                {!usage?.cleanupResult ? (
+                    <div className="space-y-4">
+                        <p className="text-sm text-text-secondary">
+                            Select items to clean from the remote device to free up storage space.
+                        </p>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <label className="flex items-center gap-3 p-3 bg-surfaceHighlight/5 rounded-xl cursor-pointer hover:bg-surfaceHighlight/10 transition-colors">
+                                <input
+                                    type="checkbox"
+                                    checked={cleanupOptions.journal}
+                                    onChange={e => setCleanupOptions({ ...cleanupOptions, journal: e.target.checked })}
+                                    className="w-4 h-4 accent-red-400"
+                                />
+                                <div>
+                                    <span className="block text-white font-medium">System Journal</span>
+                                    <span className="text-xs text-text-muted">Vacuum logs to 50MB</span>
+                                </div>
+                            </label>
+
+                            <label className="flex items-center gap-3 p-3 bg-surfaceHighlight/5 rounded-xl cursor-pointer hover:bg-surfaceHighlight/10 transition-colors">
+                                <input
+                                    type="checkbox"
+                                    checked={cleanupOptions.appLogs}
+                                    onChange={e => setCleanupOptions({ ...cleanupOptions, appLogs: e.target.checked })}
+                                    className="w-4 h-4 accent-red-400"
+                                />
+                                <div>
+                                    <span className="block text-white font-medium">Application Logs</span>
+                                    <span className="text-xs text-text-muted">Truncate large logs</span>
+                                </div>
+                            </label>
+
+                            <label className="flex items-center gap-3 p-3 bg-surfaceHighlight/5 rounded-xl cursor-pointer hover:bg-surfaceHighlight/10 transition-colors">
+                                <input
+                                    type="checkbox"
+                                    checked={cleanupOptions.apt}
+                                    onChange={e => setCleanupOptions({ ...cleanupOptions, apt: e.target.checked })}
+                                    className="w-4 h-4 accent-red-400"
+                                />
+                                <div>
+                                    <span className="block text-white font-medium">Package Cache</span>
+                                    <span className="text-xs text-text-muted">APT clean & autoremove</span>
+                                </div>
+                            </label>
+                        </div>
+
+                        <div className="flex gap-4 pt-2">
+                            <button
+                                onClick={handleDeepCleanup}
+                                disabled={loading || (!cleanupOptions.journal && !cleanupOptions.appLogs && !cleanupOptions.apt)}
+                                className="bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 px-6 py-3 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed font-medium w-full flex items-center justify-center gap-2"
+                            >
+                                {loading ? 'Cleaning System...' : (
+                                    <>
+                                        <Trash2 className="w-4 h-4" />
+                                        Run Cleanup
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="bg-surfaceHighlight/5 rounded-xl p-6 border border-surfaceHighlight/20 animate-in fade-in zoom-in duration-300">
+                        <div className="text-center mb-6">
+                            <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <Trash2 className="w-8 h-8 text-green-400" />
+                            </div>
+                            <h4 className="text-xl font-bold text-white mb-1">Cleanup Complete!</h4>
+                            <p className="text-green-400 font-medium">
+                                Successfully freed {formatBytes(usage.cleanupResult.freed_bytes)}
+                            </p>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4 mb-6">
+                            <div className="bg-surfaceHighlight/10 p-3 rounded-lg text-center">
+                                <span className="text-xs text-text-muted uppercase tracking-wider">Before</span>
+                                <p className="text-white font-bold">{formatBytes(usage.cleanupResult.initial_free_bytes)} Free</p>
+                            </div>
+                            <div className="bg-surfaceHighlight/10 p-3 rounded-lg text-center border border-green-500/20">
+                                <span className="text-xs text-text-muted uppercase tracking-wider">After</span>
+                                <p className="text-green-400 font-bold">{formatBytes(usage.cleanupResult.final_free_bytes)} Free</p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-2 mb-6">
+                            <p className="text-sm font-medium text-text-secondary">Actions Taken:</p>
+                            <ul className="text-sm text-text-muted space-y-1 list-disc pl-4">
+                                {usage.cleanupResult.details.map((detail, i) => (
+                                    <li key={i}>{detail}</li>
+                                ))}
+                            </ul>
+                        </div>
+
+                        <button
+                            onClick={() => {
+                                setUsage({ ...usage, cleanupResult: null });
+                                fetchUsage();
+                            }}
+                            className="w-full bg-surfaceHighlight/20 hover:bg-surfaceHighlight/30 text-white px-4 py-2 rounded-lg transition-all"
+                        >
+                            Done
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* Buffered Data Files */}

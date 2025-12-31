@@ -4,7 +4,7 @@ from asyncua import Server, ua
 from app.core.store import GlobalDataStore
 
 # Enable verbose asyncua logging for debugging
-logging.getLogger('asyncua').setLevel(logging.DEBUG)
+logging.getLogger('asyncua').setLevel(logging.WARNING)
 
 class OPCUAServerService:
     def __init__(self):

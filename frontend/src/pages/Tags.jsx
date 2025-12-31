@@ -23,6 +23,8 @@ const Tags = () => {
     const [loading, setLoading] = useState(true);
     const [hoveredTag, setHoveredTag] = useState(null);
     const [hoveredTagPos, setHoveredTagPos] = useState({ x: 0, y: 0 });
+    const [hoveredError, setHoveredError] = useState(null);
+    const [hoveredErrorPos, setHoveredErrorPos] = useState({ x: 0, y: 0 });
     const [historyLimit, setHistoryLimit] = useState(60);
 
     const [showWriteModal, setShowWriteModal] = useState(false);
@@ -298,6 +300,15 @@ const Tags = () => {
         setHoveredTag(tagId);
     };
 
+    const handleErrorMouseEnter = (e, tagId) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        setHoveredErrorPos({
+            x: rect.left + rect.width / 2,
+            y: rect.top
+        });
+        setHoveredError(tagId);
+    };
+
     return (
         <div className="space-y-8 relative">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -496,22 +507,15 @@ const Tags = () => {
                                             )}
                                             <td className="p-4">
                                                 {val?.quality === 'BAD' && val?.error_message ? (
-                                                    <div className="relative group/error">
-                                                        <div className="flex items-center gap-2 cursor-help">
-                                                            <svg className="w-5 h-5 text-error" fill="currentColor" viewBox="0 0 20 20">
-                                                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                                                            </svg>
-                                                            <span className="text-xs text-error font-semibold">ERROR</span>
-                                                        </div>
-                                                        <div className="fixed left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 w-96 max-w-[90vw] p-4 bg-slate-800 border-2 border-error rounded-xl shadow-2xl opacity-0 invisible group-hover/error:opacity-100 group-hover/error:visible transition-all duration-200 z-[100] pointer-events-none">
-                                                            <div className="flex items-center gap-2 mb-2">
-                                                                <svg className="w-5 h-5 text-error flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                                                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                                                                </svg>
-                                                                <div className="text-sm font-bold text-error">Error Details</div>
-                                                            </div>
-                                                            <div className="text-sm text-white leading-relaxed break-words">{val.error_message}</div>
-                                                        </div>
+                                                    <div
+                                                        className="flex items-center gap-2 cursor-help"
+                                                        onMouseEnter={(e) => handleErrorMouseEnter(e, tag.tag_id)}
+                                                        onMouseLeave={() => setHoveredError(null)}
+                                                    >
+                                                        <svg className="w-5 h-5 text-error" fill="currentColor" viewBox="0 0 20 20">
+                                                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                                                        </svg>
+                                                        <span className="text-xs text-error font-semibold">ERROR</span>
                                                     </div>
                                                 ) : (
                                                     <div
@@ -631,6 +635,30 @@ const Tags = () => {
                     />
                     {/* Arrow */}
                     <div className="absolute left-1/2 -translate-x-1/2 top-full -mt-1 border-8 border-transparent border-t-surfaceHighlight/50 filter drop-shadow-lg"></div>
+                </div>
+            )}
+
+            {/* Global Error Popup */}
+            {hoveredError && values[hoveredError]?.error_message && (
+                <div
+                    className="fixed z-[100] pointer-events-none animate-in fade-in zoom-in-95 duration-200 w-80 max-w-[90vw]"
+                    style={{
+                        left: hoveredErrorPos.x,
+                        top: hoveredErrorPos.y - 10,
+                        transform: 'translate(-50%, -100%)'
+                    }}
+                >
+                    <div className="bg-slate-800 border-2 border-error rounded-xl shadow-2xl p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                            <svg className="w-5 h-5 text-error flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                            </svg>
+                            <div className="text-sm font-bold text-error">Error Details</div>
+                        </div>
+                        <div className="text-sm text-white leading-relaxed break-words">{values[hoveredError].error_message}</div>
+                    </div>
+                    {/* Arrow */}
+                    <div className="absolute left-1/2 -translate-x-1/2 top-full -mt-1 border-8 border-transparent border-t-error filter drop-shadow-lg"></div>
                 </div>
             )}
 

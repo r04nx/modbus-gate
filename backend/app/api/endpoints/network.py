@@ -86,18 +86,14 @@ def get_wifi_status_info():
         signal = None
         freq = None
 
-        logger.warning(f"[WIFI DEBUG] Found connection. Device: {device}, SSID: {ssid}")
 
-        # 2. Get IP Address from 'dev show' (Using Terse)
-        # Format: IP4.ADDRESS[1]:192.168.1.51/24
         status_res = subprocess.run(
             [NMCLI, "-t", "-f", "IP4.ADDRESS", "dev", "show", device],
             capture_output=True,
             text=True
         )
         
-        # Log raw IP output
-        logger.warning(f"[WIFI DEBUG] IP Raw Output: {status_res.stdout.strip()}")
+
 
         for line in status_res.stdout.splitlines():
             if "IP4.ADDRESS" in line:
@@ -116,8 +112,7 @@ def get_wifi_status_info():
             text=True
         )
         
-        # Log first few lines of wifi list
-        logger.warning(f"[WIFI DEBUG] Wifi List Sample: {wifi_res.stdout[:200].replace(chr(10), ' | ')}")
+
 
         for line in wifi_res.stdout.splitlines():
             # Format: SIGNAL:FREQ:IN-USE:SSID
@@ -141,9 +136,9 @@ def get_wifi_status_info():
                      if in_use == "*":
                          break
         
-        logger.warning(f"[WIFI DEBUG] Final Parsed - IP: {ip}, Signal: {signal}, Freq: {freq}")
 
-        return WifiStatusResponse(
+
+        response = WifiStatusResponse(
             connected=True,
             ssid=ssid,
             ip_address=ip,
@@ -151,6 +146,8 @@ def get_wifi_status_info():
             frequency=freq,
             device=device
         )
+        logger.info(f"Wifi Status Return: {response}")
+        return response
 
     except Exception as e:
         logger.error(f"Error getting wifi status: {e}")
@@ -221,7 +218,6 @@ def scan_wifi(
 
 @router.get("/wifi/status", response_model=WifiStatusResponse)
 def get_wifi_status_endpoint(
-    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     return get_wifi_status_info()

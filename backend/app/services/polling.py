@@ -298,7 +298,7 @@ class PollingEngine:
             start_ts = asyncio.get_event_loop().time()
             await self._poll_modbus_common(client, tags, params, dev_name)
             duration = asyncio.get_event_loop().time() - start_ts
-            logging.info(f"PERF: Modbus RTU {dev_name} polled {len(tags)} tags in {duration:.4f}s")
+            logging.debug(f"PERF: Modbus RTU {dev_name} polled {len(tags)} tags in {duration:.4f}s")
 
     async def _poll_modbus_common(self, client, tags, params, dev_name):
         try:
@@ -337,7 +337,7 @@ class PollingEngine:
                         
                     # 2. Process groups
                     for reg_type, tag_list in grouped_tags.items():
-                        logging.info(f"DEBUG: Processing {len(tag_list)} tags for type {reg_type}")
+                        logging.debug(f"DEBUG: Processing {len(tag_list)} tags for type {reg_type}")
                         # Sort by address
                         tag_list.sort(key=lambda x: x['addr'])
                         

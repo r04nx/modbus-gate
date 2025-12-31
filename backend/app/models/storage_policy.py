@@ -27,6 +27,11 @@ class StoragePolicy(Base):
     time_unit = Column(Enum(TimeUnit), nullable=True)
     northbound_interface = Column(String, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Auto-Cleanup Settings
+    auto_cleanup_enabled = Column(Boolean, default=False)
+    cleanup_threshold = Column(Integer, default=85)  # % usage to trigger cleanup
+    cleanup_schedule = Column(String, default="daily")  # 'daily', 'weekly'
 
     def is_storage_based(self) -> bool:
         """Check if policy is storage-based"""

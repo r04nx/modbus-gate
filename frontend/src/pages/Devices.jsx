@@ -186,6 +186,7 @@ const Devices = () => {
                                     <>
                                         <div className="flex justify-between"><span>Port:</span> <span className="text-white">{device.connection_params.port}</span></div>
                                         <div className="flex justify-between"><span>Baud:</span> <span className="text-white">{device.connection_params.baudrate}</span></div>
+                                        <div className="flex justify-between"><span>Slave ID:</span> <span className="text-white">{device.connection_params.slave_id}</span></div>
                                     </>
                                 )}
                                 {device.type === 'OPC_UA' && (

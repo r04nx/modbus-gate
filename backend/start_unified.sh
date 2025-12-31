@@ -5,6 +5,9 @@ cleanup() {
     echo "🛑 Stopping services..."
     kill $BACKEND_PID 2>/dev/null || true
     kill $DB_VIEWER_PID 2>/dev/null || true
+    sleep 1
+    # Force kill any remaining children
+    pkill -P $$ || true
     exit 0
 }
 

@@ -38,28 +38,75 @@ def get_current_user(
     Raises:
         HTTPException: If authentication fails
     """
+    # --- Cache Implementation ---
+    import time
+    global _CREDENTIAL_CACHE
+    if not '_CREDENTIAL_CACHE' in globals():
+        _CREDENTIAL_CACHE = {}
+    
+    # Prune cache occasionally (simple mechanism)
+    if len(_CREDENTIAL_CACHE) > 1000:
+        _CREDENTIAL_CACHE.clear()
+
+    cache_key = (credentials.username, credentials.password)
+    current_time = time.time()
+    
+    # Check cache (valid for 300 seconds)
+    if cache_key in _CREDENTIAL_CACHE:
+        timestamp, is_valid = _CREDENTIAL_CACHE[cache_key]
+        if current_time - timestamp < 300:
+            if is_valid:
+                # Still need to fetch user object for the return value
+                # Optimization: We can trust the user exists if credentials are valid in cache
+                # But we still query to get the full object and ensure it wasn't deleted
+                pass
+            else:
+                # Cached failure
+                print(f"DEBUG: Using cached authentication failure for {credentials.username}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Incorrect username or password",
+                    headers={"WWW-Authenticate": "Basic"},
+                )
+    
     # Query user by username
-    print(f"DEBUG: Authenticating user: {credentials.username}")
+    # print(f"DEBUG: Authenticating user: {credentials.username}") 
+    # Commented out debug to reduce log spam
     user = db.query(User).filter(User.username == credentials.username).first()
     
     # Verify user exists and password is correct
     if not user:
-        print(f"DEBUG: User {credentials.username} not found")
+        # Cache failure
+        _CREDENTIAL_CACHE[cache_key] = (current_time, False)
+        # print(f"DEBUG: User {credentials.username} not found")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Basic"},
         )
         
-    if not user.verify_password(credentials.password):
-        print(f"DEBUG: Password verification failed for {credentials.username}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Basic"},
-        )
+    # Check if we can skip verify_password based on cache
+    should_verify = True
+    if cache_key in _CREDENTIAL_CACHE:
+        timestamp, is_valid = _CREDENTIAL_CACHE[cache_key]
+        if is_valid and (current_time - timestamp < 300):
+            should_verify = False
+
+    if should_verify:
+        if not user.verify_password(credentials.password):
+            # Cache failure
+            _CREDENTIAL_CACHE[cache_key] = (current_time, False)
+            # print(f"DEBUG: Password verification failed for {credentials.username}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username or password",
+                headers={"WWW-Authenticate": "Basic"},
+            )
+        else:
+            # Cache success
+            _CREDENTIAL_CACHE[cache_key] = (current_time, True)
         
-    print(f"DEBUG: User {credentials.username} authenticated successfully. Role: {user.role}")
+    # print(f"DEBUG: User {credentials.username} authenticated successfully. Role: {user.role}")
 
     
     # Update last login timestamp

@@ -70,7 +70,7 @@ class HostnameUpdate(BaseModel):
     hostname: str
 
 @router.get("/hostname")
-def get_hostname(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_hostname(db: Session = Depends(get_db)):
     hostname = get_setting("hostname", db, "vistaiot-gateway")
     return {"hostname": hostname}
 

@@ -45,6 +45,9 @@ class StoragePolicyUpdate(BaseModel):
     time_value: Optional[int] = None
     time_unit: Optional[TimeUnit] = None
     northbound_interface: Optional[str] = None
+    auto_cleanup_enabled: Optional[bool] = None
+    cleanup_threshold: Optional[int] = None
+    cleanup_schedule: Optional[str] = None
 
 
 class StorageUsageResponse(BaseModel):
@@ -194,6 +197,114 @@ def download_buffered_file(
         media_type="text/csv"
     )
 
+
+@router.post("/manual-cleanup")
+def manual_cleanup(
+    clean_journal: bool = True,
+    clean_app_logs: bool = True,
+    clean_apt_cache: bool = True,
+    current_user: User = Depends(get_current_user)
+):
+    """Trigger manual system cleanup with granular control and detailed stats."""
+    try:
+        import subprocess
+        import shutil
+        
+        # Measure initial space
+        initial_stat = shutil.disk_usage("/")
+        details = []
+        
+        if clean_journal:
+            # Vacuum Journal
+            subprocess.run(["journalctl", "--vacuum-size=50M"], capture_output=True)
+            details.append("Vacuumed system journal to 50MB limit")
+            
+        if clean_app_logs:
+            # Clean old archives
+            subprocess.run("find /var/log -type f -name '*.gz' -delete", shell=True)
+            subprocess.run("find /var/log -type f -name '*.1' -delete", shell=True)
+            # Truncate active large logs
+            subprocess.run("find /var/log -type f -size +50M -name '*.log' -exec truncate -s 0 {} \\;", shell=True)
+            details.append("Removed old log archives and truncated oversized logs")
+            
+        if clean_apt_cache:
+            subprocess.run(["apt-get", "clean"], capture_output=True)
+            subprocess.run(["apt-get", "autoremove", "-y"], capture_output=True)
+            details.append("Cleared APT package cache and unused dependencies")
+            
+        # Measure final space
+        final_stat = shutil.disk_usage("/")
+        freed_bytes = final_stat.free - initial_stat.free
+        
+        # Ensure we don't show negative freed space if something else wrote to disk simultaneously
+        if freed_bytes < 0:
+            freed_bytes = 0
+
+        return {
+            "success": True,
+            "message": "Cleanup completed",
+            "initial_free_bytes": initial_stat.free,
+            "final_free_bytes": final_stat.free,
+            "freed_bytes": freed_bytes,
+            "details": details
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+def update_cron_job(policy: StoragePolicy):
+    """Update crontab based on policy."""
+    import subprocess
+    CRON_FILE = "/etc/cron.d/vistaiot-cleanup"
+    SCRIPT_PATH = "/root/modbus-gate/backend/scripts/check_and_clean.sh"
+    
+    if not policy.auto_cleanup_enabled:
+        if os.path.exists(CRON_FILE):
+            os.remove(CRON_FILE)
+        return
+
+    # Determine schedule
+    schedule = "0 3 * * *" # Daily at 3 AM
+    if policy.cleanup_schedule == 'weekly':
+        schedule = "0 3 * * 0" # Weekly on Sunday
+
+    # Create cron content
+    cron_content = f"{schedule} root {SCRIPT_PATH} {policy.cleanup_threshold}\n"
+    
+    # Write to temp file then move (needs root)
+    # We assume the service runs as root or has permission
+    try:
+        with open("/tmp/vistaiot-cleanup", "w") as f:
+            f.write(cron_content)
+        subprocess.run(["mv", "/tmp/vistaiot-cleanup", CRON_FILE], check=True)
+        subprocess.run(["chmod", "644", CRON_FILE], check=True)
+    except Exception as e:
+        print(f"Error updating cron: {e}")
+
+@router.put("/policy", response_model=StoragePolicyResponse)
+def update_storage_policy(
+    policy_data: StoragePolicyUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update storage policy configuration."""
+    policy = db.query(StoragePolicy).first()
+    
+    if not policy:
+        # Create new policy
+        policy = StoragePolicy(**policy_data.dict())
+        db.add(policy)
+    else:
+        # Update existing policy
+        for key, value in policy_data.dict().items():
+            setattr(policy, key, value)
+    
+    db.commit()
+    db.refresh(policy)
+    
+    # Update System Cron
+    update_cron_job(policy)
+    
+    return policy
 
 @router.delete("/buffered-files/{filename}")
 def delete_buffered_file(
