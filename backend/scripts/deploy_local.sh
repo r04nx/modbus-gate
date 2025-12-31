@@ -7,8 +7,8 @@ sudo systemctl stop vistaiot-db-viewer.service
 
 # 2. Copy service files
 echo "Installing service files..."
-sudo cp vistaiot-backend.service /etc/systemd/system/
-sudo cp vistaiot-db-viewer.service /etc/systemd/system/
+sudo cp services/vistaiot-backend.service /etc/systemd/system/
+sudo cp services/vistaiot-db-viewer.service /etc/systemd/system/
 
 # 3. Reload systemd
 echo "Reloading systemd..."

@@ -1,5 +1,0 @@
-device_name,tag_name,slave_id,register_type,address,data_type
-OPC 1,CPU,1,HR,1,INT16
-Modbus 1,Calc from Modbus,1,HR,2,UINT32
-Modbus 2,new calc tag 40+ram from Modbus Server 2,1,HR,4,INT32
-Modbus 1,OPC UA CPU USAGE,1,HR,6,INT16

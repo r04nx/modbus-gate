@@ -27,8 +27,8 @@ echo "Installing Python dependencies..."
 
 # 4. Install Service Files
 echo "Installing service files..."
-cp "$APP_DIR/vistaiot-backend-remote.service" /etc/systemd/system/vistaiot-backend.service
-cp "$APP_DIR/vistaiot-db-viewer-remote.service" /etc/systemd/system/vistaiot-db-viewer.service
+cp "$APP_DIR/services/vistaiot-backend-remote.service" /etc/systemd/system/vistaiot-backend.service
+cp "$APP_DIR/services/vistaiot-db-viewer-remote.service" /etc/systemd/system/vistaiot-db-viewer.service
 
 # 5. Configure Network (Persistence Fix)
 echo "Configuring network priority..."
