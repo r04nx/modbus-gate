@@ -15,10 +15,12 @@ from pysnmp.hlapi.asyncio import (
 )
 import c104
 
-# Suppress verbose asyncua logging
+# Suppress verbose asyncua and pymodbus logging
 logging.getLogger('asyncua').setLevel(logging.WARNING)
 logging.getLogger('opcua').setLevel(logging.WARNING)
 logging.getLogger('uaclient').setLevel(logging.WARNING)
+logging.getLogger('pymodbus').setLevel(logging.WARNING)
+logging.getLogger('pymodbus.logging').setLevel(logging.WARNING)
 
 def convert_byte_order(registers, byte_order='ABCD', data_type='FLOAT32'):
     """
@@ -348,7 +350,7 @@ class PollingEngine:
                         batch_end = -1
                         
                         MAX_GAP = 20
-                        MAX_COUNT = 100 # Safe limit for Modbus RTU
+                        MAX_COUNT = 120 # Safe limit for Modbus (max PDU ~253 bytes)
 
                         for item in tag_list:
                             addr = item['addr']
@@ -361,12 +363,19 @@ class PollingEngine:
                                 batch_end = end
                             else:
                                 # Check if we can extend
+                                # Use max(batch_end, end) to handle overlapping/duplicate ranges
+                                new_end = max(batch_end, end)
+                                new_count = new_end - batch_start
                                 gap = addr - batch_end
-                                new_count = (end - batch_start)
                                 
-                                if gap >= 0 and gap <= MAX_GAP and new_count <= MAX_COUNT:
+                                # Logic: 
+                                # 1. If overlaps (addr < batch_end), gap is negative. logic checks new_count limit.
+                                # 2. If contiguous (addr == batch_end), gap is 0.
+                                # 3. If gap (addr > batch_end), gap check applies.
+                                
+                                if new_count <= MAX_COUNT and (gap <= MAX_GAP or addr < batch_end):
                                     current_batch.append(item)
-                                    batch_end = end
+                                    batch_end = new_end
                                 else:
                                     # Close previous batch
                                     batches.append({
@@ -437,13 +446,15 @@ class PollingEngine:
                                                      t_dtype = tag.get('data_type')
                                                      val = convert_byte_order(regs, byte_order, t_dtype)
                                          
+                                         
                                          if val is not None:
                                              await self.store.update_tag(tag['tag_id'], val)
                                 else:
                                     # Log error once for batch
                                     pass
                              except Exception as e:
-                                 logging.error(f"Batch read exception: {e}")
+                                 failed_tags = ", ".join([item['tag']['tag_id'] for item in items])
+                                 logging.error(f"Modbus Batch Read Failed | Device: '{dev_name}' | StartAddr: {start} | Count: {count} | Error: {str(e)} | Affected Tags: [{failed_tags}]")
                 else:
                     # Connection failed
                     error_msg = f"Modbus Connection Error: Failed to connect to {params.get('host', 'device')}"

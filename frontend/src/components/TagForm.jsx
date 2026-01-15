@@ -122,7 +122,7 @@ const TagForm = ({ onClose, onSubmit, editTag = null, initialType = null }) => {
                     ...formData,
                     type,
                     tag_id: `${prefix}_${addr}_${timestamp}_${random}`.toUpperCase(),
-                    name: `${prefix} ${addr}`,
+                    name: `${prefix}_${addr}`,
                     address: addr.toString(),
                     description: formData.description || `Auto-generated tag for address ${addr}`
                 };

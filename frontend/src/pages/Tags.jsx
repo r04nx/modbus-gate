@@ -278,6 +278,21 @@ const Tags = () => {
         );
     }
 
+    // Pagination Logic
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 50;
+    const totalPages = Math.ceil(filteredTags.length / itemsPerPage);
+
+    // Reset to page 1 when filter/search changes
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [filter, searchQuery, deviceIdFilter]);
+
+    const paginatedTags = filteredTags.slice(
+        (currentPage - 1) * itemsPerPage,
+        currentPage * itemsPerPage
+    );
+
     const isNumeric = (type) => {
         if (!type) return false;
         const numericTypes = ['INT16', 'UINT16', 'INT32', 'UINT32', 'FLOAT32', 'FLOAT64', 'DOUBLE', 'BOOL', 'BOOLEAN'];
@@ -401,219 +416,244 @@ const Tags = () => {
                 className="animate-in fade-in slide-in-from-top-2 duration-300"
             />
 
-            <div className="bg-surface/50 backdrop-blur-md border border-surfaceHighlight rounded-2xl overflow-hidden shadow-card">
+            <div className="bg-surface/50 backdrop-blur-md border border-surfaceHighlight rounded-2xl overflow-hidden shadow-card flex flex-col">
                 {loading ? (
                     <div className="p-6">
                         <TableSkeleton rows={10} columns={6} />
                     </div>
                 ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                            <thead>
-                                <tr className="bg-surfaceHighlight/30 border-b border-surfaceHighlight/50">
-                                    <th className="p-4 w-10">
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedTags.size > 0 && selectedTags.size === filteredTags.length}
-                                            onChange={toggleSelectAll}
-                                            className="w-4 h-4 rounded border-surfaceHighlight/50 bg-surfaceHighlight/20 text-primary focus:ring-primary focus:ring-offset-0"
-                                        />
-                                    </th>
-                                    <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Tag Name</th>
-                                    {filter === 'IO' && (
-                                        <>
-                                            <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Address</th>
-                                            <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Data Type</th>
-                                        </>
-                                    )}
-                                    {filter === 'CALCULATION' && <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Formula</th>}
-                                    {filter === 'USER' && <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Initial Value</th>}
-                                    {filter === 'SYSTEM' && <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Description</th>}
-                                    {filter === 'SYSTEM' && <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Description</th>}
-                                    <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">
-                                        <div className="flex items-center gap-2">
-                                            Value
-                                            <select
-                                                value={historyLimit}
-                                                onChange={(e) => setHistoryLimit(Number(e.target.value))}
-                                                className="bg-surfaceHighlight/50 border border-surfaceHighlight rounded px-1 py-0.5 text-xs text-white focus:outline-none cursor-pointer hover:bg-surfaceHighlight"
-                                                onClick={(e) => e.stopPropagation()}
-                                                title="Sparkline Time Window"
-                                            >
-                                                <option value={60}>1m</option>
-                                                <option value={300}>5m</option>
-                                                <option value={900}>15m</option>
-                                                <option value={3600}>1h</option>
-                                            </select>
-                                        </div>
-                                    </th>
-                                    <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Quality</th>
-                                    <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Last Update</th>
-                                    <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-surfaceHighlight/30">
-                                {filteredTags.map(tag => {
-                                    const val = values[tag.tag_id];
-                                    return (
-                                        <tr key={tag.id} className={clsx(
-                                            "hover:bg-surfaceHighlight/10 transition-colors group",
-                                            selectedTags.has(tag.id) && "bg-primary/10"
-                                        )}>
-                                            <td className="p-4">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={selectedTags.has(tag.id)}
-                                                    onChange={() => toggleSelect(tag.id)}
-                                                    className="w-4 h-4 rounded border-surfaceHighlight/50 bg-surfaceHighlight/20 text-primary focus:ring-primary focus:ring-offset-0"
-                                                />
-                                            </td>
-                                            <td className="p-4">
-                                                <div className="flex items-center gap-3">
-                                                    <div className="p-2 bg-surfaceHighlight/30 rounded-lg text-accent group-hover:text-white transition-colors">
-                                                        <TagIcon size={16} />
+                    <>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left">
+                                <thead>
+                                    <tr className="bg-surfaceHighlight/30 border-b border-surfaceHighlight/50">
+                                        <th className="p-4 w-10">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedTags.size > 0 && selectedTags.size === filteredTags.length}
+                                                onChange={toggleSelectAll}
+                                                className="w-4 h-4 rounded border-surfaceHighlight/50 bg-surfaceHighlight/20 text-primary focus:ring-primary focus:ring-offset-0"
+                                            />
+                                        </th>
+                                        <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Tag Name</th>
+                                        {filter === 'IO' && (
+                                            <>
+                                                <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Address</th>
+                                                <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Data Type</th>
+                                            </>
+                                        )}
+                                        {filter === 'CALCULATION' && <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Formula</th>}
+                                        {filter === 'USER' && <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Initial Value</th>}
+                                        {filter === 'SYSTEM' && <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Description</th>}
+                                        {filter === 'SYSTEM' && <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Description</th>}
+                                        <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">
+                                            <div className="flex items-center gap-2">
+                                                Value
+                                                <select
+                                                    value={historyLimit}
+                                                    onChange={(e) => setHistoryLimit(Number(e.target.value))}
+                                                    className="bg-surfaceHighlight/50 border border-surfaceHighlight rounded px-1 py-0.5 text-xs text-white focus:outline-none cursor-pointer hover:bg-surfaceHighlight"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    title="Sparkline Time Window"
+                                                >
+                                                    <option value={60}>1m</option>
+                                                    <option value={300}>5m</option>
+                                                    <option value={900}>15m</option>
+                                                    <option value={3600}>1h</option>
+                                                </select>
+                                            </div>
+                                        </th>
+                                        <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Quality</th>
+                                        <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Last Update</th>
+                                        <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-surfaceHighlight/30">
+                                    {paginatedTags.map(tag => {
+                                        const val = values[tag.tag_id];
+                                        return (
+                                            <tr key={tag.id} className={clsx(
+                                                "hover:bg-surfaceHighlight/10 transition-colors group",
+                                                selectedTags.has(tag.id) && "bg-primary/10"
+                                            )}>
+                                                <td className="p-4">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedTags.has(tag.id)}
+                                                        onChange={() => toggleSelect(tag.id)}
+                                                        className="w-4 h-4 rounded border-surfaceHighlight/50 bg-surfaceHighlight/20 text-primary focus:ring-primary focus:ring-offset-0"
+                                                    />
+                                                </td>
+                                                <td className="p-4">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="p-2 bg-surfaceHighlight/30 rounded-lg text-accent group-hover:text-white transition-colors">
+                                                            <TagIcon size={16} />
+                                                        </div>
+                                                        <div>
+                                                            <div className="font-medium text-white text-lg">
+                                                                {tag.type === 'IO' && tag.device_id ? (
+                                                                    <span className="flex items-baseline gap-1">
+                                                                        <span className="text-primary font-bold">{devicesMap[tag.device_id] || 'Unknown'}:</span>
+                                                                        <span>{tag.name}</span>
+                                                                    </span>
+                                                                ) : (
+                                                                    tag.name
+                                                                )}
+                                                            </div>
+                                                            <div className="text-xs text-text-muted font-mono bg-surfaceHighlight/20 px-1.5 py-0.5 rounded inline-block mt-1">
+                                                                <small>ID: {tag.tag_id}</small>
+                                                            </div>
+                                                        </div>
                                                     </div>
-                                                    <div>
-                                                        <div className="font-medium text-white text-lg">
-                                                            {tag.type === 'IO' && tag.device_id ? (
-                                                                <span className="flex items-baseline gap-1">
-                                                                    <span className="text-primary font-bold">{devicesMap[tag.device_id] || 'Unknown'}:</span>
-                                                                    <span>{tag.name}</span>
-                                                                </span>
-                                                            ) : (
-                                                                tag.name
+                                                </td>
+                                                {filter === 'IO' && (
+                                                    <>
+                                                        <td className="p-4 text-sm text-text-secondary font-mono">{tag.address}</td>
+                                                        <td className="p-4 text-sm text-text-secondary">{tag.data_type}</td>
+                                                    </>
+                                                )}
+                                                {filter === 'CALCULATION' && (
+                                                    <td className="p-4 text-sm text-text-secondary font-mono">{tag.calculation_formula}</td>
+                                                )}
+                                                {filter === 'USER' && (
+                                                    <td className="p-4 text-sm text-text-secondary">{tag.initial_value || '-'}</td>
+                                                )}
+                                                {filter === 'SYSTEM' && (
+                                                    <td className="p-4 text-sm text-text-secondary">{tag.description || '-'}</td>
+                                                )}
+                                                <td className="p-4">
+                                                    {val?.quality === 'BAD' && val?.error_message ? (
+                                                        <div
+                                                            className="flex items-center gap-2 cursor-help"
+                                                            onMouseEnter={(e) => handleErrorMouseEnter(e, tag.tag_id)}
+                                                            onMouseLeave={() => setHoveredError(null)}
+                                                        >
+                                                            <svg className="w-5 h-5 text-error" fill="currentColor" viewBox="0 0 20 20">
+                                                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                                                            </svg>
+                                                            <span className="text-xs text-error font-semibold">ERROR</span>
+                                                        </div>
+                                                    ) : (
+                                                        <div
+                                                            className="flex items-center gap-4 relative"
+                                                            onMouseEnter={(e) => handleMouseEnter(e, tag.tag_id)}
+                                                            onMouseLeave={() => setHoveredTag(null)}
+                                                        >
+                                                            <span className="text-sm text-white font-mono min-w-[60px]">{val?.value ?? '-'}</span>
+
+                                                            {/* Sparkline for Numeric Tags */}
+                                                            {(isNumeric(tag.data_type) || !isNaN(parseFloat(val?.value))) && val?.history && val.history.length > 1 && (
+                                                                <div className="w-24 h-8 opacity-70 hover:opacity-100 transition-opacity cursor-crosshair">
+                                                                    <Sparkline
+                                                                        data={getHistoryValues(val.history)}
+                                                                        width={96}
+                                                                        height={32}
+                                                                        color="#3b82f6"
+                                                                    />
+                                                                </div>
                                                             )}
                                                         </div>
-                                                        <div className="text-xs text-text-muted font-mono bg-surfaceHighlight/20 px-1.5 py-0.5 rounded inline-block mt-1">
-                                                            <small>ID: {tag.tag_id}</small>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            {filter === 'IO' && (
-                                                <>
-                                                    <td className="p-4 text-sm text-text-secondary font-mono">{tag.address}</td>
-                                                    <td className="p-4 text-sm text-text-secondary">{tag.data_type}</td>
-                                                </>
-                                            )}
-                                            {filter === 'CALCULATION' && (
-                                                <td className="p-4 text-sm text-text-secondary font-mono">{tag.calculation_formula}</td>
-                                            )}
-                                            {filter === 'USER' && (
-                                                <td className="p-4 text-sm text-text-secondary">{tag.initial_value || '-'}</td>
-                                            )}
-                                            {filter === 'SYSTEM' && (
-                                                <td className="p-4 text-sm text-text-secondary">{tag.description || '-'}</td>
-                                            )}
-                                            <td className="p-4">
-                                                {val?.quality === 'BAD' && val?.error_message ? (
-                                                    <div
-                                                        className="flex items-center gap-2 cursor-help"
-                                                        onMouseEnter={(e) => handleErrorMouseEnter(e, tag.tag_id)}
-                                                        onMouseLeave={() => setHoveredError(null)}
-                                                    >
-                                                        <svg className="w-5 h-5 text-error" fill="currentColor" viewBox="0 0 20 20">
-                                                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                                                        </svg>
-                                                        <span className="text-xs text-error font-semibold">ERROR</span>
-                                                    </div>
-                                                ) : (
-                                                    <div
-                                                        className="flex items-center gap-4 relative"
-                                                        onMouseEnter={(e) => handleMouseEnter(e, tag.tag_id)}
-                                                        onMouseLeave={() => setHoveredTag(null)}
-                                                    >
-                                                        <span className="text-sm text-white font-mono min-w-[60px]">{val?.value ?? '-'}</span>
-
-                                                        {/* Sparkline for Numeric Tags */}
-                                                        {(isNumeric(tag.data_type) || !isNaN(parseFloat(val?.value))) && val?.history && val.history.length > 1 && (
-                                                            <div className="w-24 h-8 opacity-70 hover:opacity-100 transition-opacity cursor-crosshair">
-                                                                <Sparkline
-                                                                    data={getHistoryValues(val.history)}
-                                                                    width={96}
-                                                                    height={32}
-                                                                    color="#3b82f6"
-                                                                />
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </td>
-                                            <td className="p-4">
-                                                <span className={clsx(
-                                                    "text-xs font-bold",
-                                                    val?.quality === 'GOOD' ? "text-success" : "text-error"
-                                                )}>
-                                                    {val?.quality || 'UNKNOWN'}
-                                                </span>
-                                            </td>
-                                            <td className="p-4 text-xs text-text-muted">
-                                                {val?.timestamp ? new Date(val.timestamp).toLocaleTimeString() : '-'}
-                                            </td>
-                                            <td className="p-4">
-                                                {tag.type !== 'SYSTEM' && (
-                                                    <div className="flex gap-2">
-                                                        {tag.type === 'IO' && (
-                                                            <button
-                                                                onClick={() => openWriteModal(tag)}
-                                                                className="text-text-muted hover:text-accent transition-colors p-1"
-                                                                title="Write Value"
-                                                            >
-                                                                <Send size={16} />
-                                                            </button>
-                                                        )}
-                                                        {tag.type === 'USER' && tag.initial_value !== null && (
-                                                            <button
-                                                                onClick={async () => {
-                                                                    if (confirm(`Reset ${tag.name} to initial value (${tag.initial_value})?`)) {
-                                                                        try {
-                                                                            await writeTag(tag.tag_id, tag.initial_value);
-                                                                            fetchValues();
-                                                                            showToast.success(`Reset ${tag.name} to initial value`);
-                                                                        } catch (e) {
-                                                                            // Error handled by global interceptor
+                                                    )}
+                                                </td>
+                                                <td className="p-4">
+                                                    <span className={clsx(
+                                                        "text-xs font-bold",
+                                                        val?.quality === 'GOOD' ? "text-success" : "text-error"
+                                                    )}>
+                                                        {val?.quality || 'UNKNOWN'}
+                                                    </span>
+                                                </td>
+                                                <td className="p-4 text-xs text-text-muted">
+                                                    {val?.timestamp ? new Date(val.timestamp).toLocaleTimeString() : '-'}
+                                                </td>
+                                                <td className="p-4">
+                                                    {tag.type !== 'SYSTEM' && (
+                                                        <div className="flex gap-2">
+                                                            {tag.type === 'IO' && (
+                                                                <button
+                                                                    onClick={() => openWriteModal(tag)}
+                                                                    className="text-text-muted hover:text-accent transition-colors p-1"
+                                                                    title="Write Value"
+                                                                >
+                                                                    <Send size={16} />
+                                                                </button>
+                                                            )}
+                                                            {tag.type === 'USER' && tag.initial_value !== null && (
+                                                                <button
+                                                                    onClick={async () => {
+                                                                        if (confirm(`Reset ${tag.name} to initial value (${tag.initial_value})?`)) {
+                                                                            try {
+                                                                                await writeTag(tag.tag_id, tag.initial_value);
+                                                                                fetchValues();
+                                                                                showToast.success(`Reset ${tag.name} to initial value`);
+                                                                            } catch (e) {
+                                                                                // Error handled by global interceptor
+                                                                            }
                                                                         }
-                                                                    }
+                                                                    }}
+                                                                    className="text-text-muted hover:text-warning transition-colors p-1"
+                                                                    title={`Reset to Initial Value (${tag.initial_value})`}
+                                                                >
+                                                                    <RefreshCw size={16} />
+                                                                </button>
+                                                            )}
+                                                            <button
+                                                                onClick={() => {
+                                                                    setEditingTag(tag);
+                                                                    setShowForm(true);
                                                                 }}
-                                                                className="text-text-muted hover:text-warning transition-colors p-1"
-                                                                title={`Reset to Initial Value (${tag.initial_value})`}
+                                                                className="text-text-muted hover:text-primary transition-colors p-1"
+                                                                title="Edit Tag"
                                                             >
-                                                                <RefreshCw size={16} />
+                                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></svg>
                                                             </button>
-                                                        )}
-                                                        <button
-                                                            onClick={() => {
-                                                                setEditingTag(tag);
-                                                                setShowForm(true);
-                                                            }}
-                                                            className="text-text-muted hover:text-primary transition-colors p-1"
-                                                            title="Edit Tag"
-                                                        >
-                                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></svg>
-                                                        </button>
-                                                        <button
-                                                            onClick={() => handleDelete(tag.id)}
-                                                            className="text-text-muted hover:text-error transition-colors p-1"
-                                                            title="Delete Tag"
-                                                        >
-                                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg>
-                                                        </button>
-                                                    </div>
-                                                )}
+                                                            <button
+                                                                onClick={() => handleDelete(tag.id)}
+                                                                className="text-text-muted hover:text-error transition-colors p-1"
+                                                                title="Delete Tag"
+                                                            >
+                                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg>
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                    {filteredTags.length === 0 && (
+                                        <tr>
+                                            <td colSpan="8" className="p-8 text-center text-text-muted">
+                                                No tags found matching your filter.
                                             </td>
                                         </tr>
-                                    );
-                                })}
-                                {filteredTags.length === 0 && (
-                                    <tr>
-                                        <td colSpan="8" className="p-8 text-center text-text-muted">
-                                            No tags found matching your filter.
-                                        </td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                        {/* Pagination Controls */}
+                        <div className="flex items-center justify-between p-4 border-t border-surfaceHighlight/30 bg-surfaceHighlight/5">
+                            <div className="text-sm text-text-muted">
+                                Showing <span className="text-white font-medium">{Math.min(filteredTags.length, (currentPage - 1) * itemsPerPage + 1)}</span> to <span className="text-white font-medium">{Math.min(filteredTags.length, currentPage * itemsPerPage)}</span> of <span className="text-white font-medium">{filteredTags.length}</span> tags
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                                    disabled={currentPage === 1}
+                                    className="px-3 py-1.5 rounded-lg text-sm font-medium bg-surfaceHighlight/30 text-text-secondary hover:text-white hover:bg-surfaceHighlight disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    Previous
+                                </button>
+                                <span className="text-sm text-text-secondary">Page {currentPage} of {totalPages}</span>
+                                <button
+                                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                                    disabled={currentPage === totalPages}
+                                    className="px-3 py-1.5 rounded-lg text-sm font-medium bg-surfaceHighlight/30 text-text-secondary hover:text-white hover:bg-surfaceHighlight disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    Next
+                                </button>
+                            </div>
+                        </div>
+                    </>
                 )}
             </div>
 

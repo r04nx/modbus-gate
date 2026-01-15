@@ -30,7 +30,21 @@ export const setupInterceptors = (showToast) => {
     api.interceptors.response.use(
         (response) => response,
         (error) => {
-            const message = error.response?.data?.detail || error.message || "An unexpected error occurred";
+            let message = error.response?.data?.detail || error.message || "An unexpected error occurred";
+
+            // Handle Pydantic Validation Errors (Array of objects)
+            if (typeof message === 'object') {
+                try {
+                    if (Array.isArray(message)) {
+                        // Extract msgs from pydantic array
+                        message = message.map(err => `${err.loc.join('.')} : ${err.msg}`).join('\n');
+                    } else {
+                        message = JSON.stringify(message);
+                    }
+                } catch (e) {
+                    message = "Validation Error occurred";
+                }
+            }
 
             // Handle License Error
             if (error.response && error.response.status === 403 && error.response.data?.detail === 'LICENSE_INVALID') {
@@ -62,7 +76,7 @@ export const updateDevice = (id, device) => api.patch(`/devices/${id}`, device);
 export const deleteDevice = (id) => api.delete(`/devices/${id}`);
 export const testDeviceConnection = (id) => api.post(`/devices/${id}/test`);
 
-export const getTags = () => api.get('/tags/');
+export const getTags = (limit = 100000) => api.get(`/tags/?limit=${limit}`);
 export const createTag = (tag) => api.post('/tags/', tag);
 export const updateTag = (id, tag) => api.patch(`/tags/${id}`, tag);
 export const deleteTag = (id) => api.delete(`/tags/${id}`);

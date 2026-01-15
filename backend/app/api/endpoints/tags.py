@@ -11,7 +11,7 @@ from app.core.store import GlobalDataStore
 router = APIRouter()
 
 @router.get("/", response_model=List[schemas.Tag])
-async def read_tags(skip: int = 0, limit: int = 100, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def read_tags(skip: int = 0, limit: int = 100000, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     tags = db.query(models.Tag).offset(skip).limit(limit).all()
     
     # Add System Tags from GlobalDataStore
