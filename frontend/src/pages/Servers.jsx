@@ -1080,30 +1080,28 @@ export default function Servers() {
                     </table>
                 </div>
                 {/* Pagination Controls */}
-                {totalPages > 1 && (
-                    <div className="flex items-center justify-between p-4 border-t border-surfaceHighlight/30 bg-surfaceHighlight/5">
-                        <div className="text-sm text-text-muted">
-                            Showing <span className="text-white font-medium">{Math.min(currentMappings.length, (currentPage - 1) * itemsPerPage + 1)}</span> to <span className="text-white font-medium">{Math.min(currentMappings.length, currentPage * itemsPerPage)}</span> of <span className="text-white font-medium">{currentMappings.length}</span> items
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <button
-                                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                                disabled={currentPage === 1}
-                                className="px-3 py-1.5 rounded-lg text-sm font-medium bg-surfaceHighlight/30 text-text-secondary hover:text-white hover:bg-surfaceHighlight disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                            >
-                                Previous
-                            </button>
-                            <span className="text-sm text-text-secondary">Page {currentPage} of {totalPages}</span>
-                            <button
-                                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                                disabled={currentPage === totalPages}
-                                className="px-3 py-1.5 rounded-lg text-sm font-medium bg-surfaceHighlight/30 text-text-secondary hover:text-white hover:bg-surfaceHighlight disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                            >
-                                Next
-                            </button>
-                        </div>
+                <div className="flex items-center justify-between p-4 border-t border-surfaceHighlight/30 bg-surfaceHighlight/5">
+                    <div className="text-sm text-text-muted">
+                        Showing <span className="text-white font-medium">{Math.min(currentMappings.length, (currentPage - 1) * itemsPerPage + 1)}</span> to <span className="text-white font-medium">{Math.min(currentMappings.length, currentPage * itemsPerPage)}</span> of <span className="text-white font-medium">{currentMappings.length}</span> items
                     </div>
-                )}
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                            disabled={currentPage === 1}
+                            className="px-3 py-1.5 rounded-lg text-sm font-medium bg-surfaceHighlight/30 text-text-secondary hover:text-white hover:bg-surfaceHighlight disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                            Previous
+                        </button>
+                        <span className="text-sm text-text-secondary">Page {currentPage} of {totalPages || 1}</span>
+                        <button
+                            onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages || 1))}
+                            disabled={currentPage === (totalPages || 1)}
+                            className="px-3 py-1.5 rounded-lg text-sm font-medium bg-surfaceHighlight/30 text-text-secondary hover:text-white hover:bg-surfaceHighlight disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                            Next
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     );
@@ -1252,30 +1250,28 @@ export default function Servers() {
                     </table>
                 </div>
                 {/* Pagination Controls */}
-                {totalPages > 1 && (
-                    <div className="flex items-center justify-between p-4 border-t border-surfaceHighlight/30 bg-surfaceHighlight/5">
-                        <div className="text-sm text-text-muted">
-                            Showing <span className="text-white font-medium">{Math.min(currentMappings.length, (currentPage - 1) * itemsPerPage + 1)}</span> to <span className="text-white font-medium">{Math.min(currentMappings.length, currentPage * itemsPerPage)}</span> of <span className="text-white font-medium">{currentMappings.length}</span> items
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <button
-                                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                                disabled={currentPage === 1}
-                                className="px-3 py-1.5 rounded-lg text-sm font-medium bg-surfaceHighlight/30 text-text-secondary hover:text-white hover:bg-surfaceHighlight disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                            >
-                                Previous
-                            </button>
-                            <span className="text-sm text-text-secondary">Page {currentPage} of {totalPages}</span>
-                            <button
-                                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                                disabled={currentPage === totalPages}
-                                className="px-3 py-1.5 rounded-lg text-sm font-medium bg-surfaceHighlight/30 text-text-secondary hover:text-white hover:bg-surfaceHighlight disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                            >
-                                Next
-                            </button>
-                        </div>
+                <div className="flex items-center justify-between p-4 border-t border-surfaceHighlight/30 bg-surfaceHighlight/5">
+                    <div className="text-sm text-text-muted">
+                        Showing <span className="text-white font-medium">{Math.min(currentMappings.length, (currentPage - 1) * itemsPerPage + 1)}</span> to <span className="text-white font-medium">{Math.min(currentMappings.length, currentPage * itemsPerPage)}</span> of <span className="text-white font-medium">{currentMappings.length}</span> items
                     </div>
-                )}
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                            disabled={currentPage === 1}
+                            className="px-3 py-1.5 rounded-lg text-sm font-medium bg-surfaceHighlight/30 text-text-secondary hover:text-white hover:bg-surfaceHighlight disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                            Previous
+                        </button>
+                        <span className="text-sm text-text-secondary">Page {currentPage} of {totalPages || 1}</span>
+                        <button
+                            onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages || 1))}
+                            disabled={currentPage === (totalPages || 1)}
+                            className="px-3 py-1.5 rounded-lg text-sm font-medium bg-surfaceHighlight/30 text-text-secondary hover:text-white hover:bg-surfaceHighlight disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                            Next
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     );
@@ -1477,30 +1473,28 @@ export default function Servers() {
                     </table>
                 </div>
                 {/* Pagination Controls */}
-                {totalPages > 1 && (
-                    <div className="flex items-center justify-between p-4 border-t border-surfaceHighlight/30 bg-surfaceHighlight/5">
-                        <div className="text-sm text-text-muted">
-                            Showing <span className="text-white font-medium">{Math.min(currentMappings.length, (currentPage - 1) * itemsPerPage + 1)}</span> to <span className="text-white font-medium">{Math.min(currentMappings.length, currentPage * itemsPerPage)}</span> of <span className="text-white font-medium">{currentMappings.length}</span> items
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <button
-                                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                                disabled={currentPage === 1}
-                                className="px-3 py-1.5 rounded-lg text-sm font-medium bg-surfaceHighlight/30 text-text-secondary hover:text-white hover:bg-surfaceHighlight disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                            >
-                                Previous
-                            </button>
-                            <span className="text-sm text-text-secondary">Page {currentPage} of {totalPages}</span>
-                            <button
-                                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                                disabled={currentPage === totalPages}
-                                className="px-3 py-1.5 rounded-lg text-sm font-medium bg-surfaceHighlight/30 text-text-secondary hover:text-white hover:bg-surfaceHighlight disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                            >
-                                Next
-                            </button>
-                        </div>
+                <div className="flex items-center justify-between p-4 border-t border-surfaceHighlight/30 bg-surfaceHighlight/5">
+                    <div className="text-sm text-text-muted">
+                        Showing <span className="text-white font-medium">{Math.min(currentMappings.length, (currentPage - 1) * itemsPerPage + 1)}</span> to <span className="text-white font-medium">{Math.min(currentMappings.length, currentPage * itemsPerPage)}</span> of <span className="text-white font-medium">{currentMappings.length}</span> items
                     </div>
-                )}
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                            disabled={currentPage === 1}
+                            className="px-3 py-1.5 rounded-lg text-sm font-medium bg-surfaceHighlight/30 text-text-secondary hover:text-white hover:bg-surfaceHighlight disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                            Previous
+                        </button>
+                        <span className="text-sm text-text-secondary">Page {currentPage} of {totalPages || 1}</span>
+                        <button
+                            onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages || 1))}
+                            disabled={currentPage === (totalPages || 1)}
+                            className="px-3 py-1.5 rounded-lg text-sm font-medium bg-surfaceHighlight/30 text-text-secondary hover:text-white hover:bg-surfaceHighlight disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                            Next
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     );
@@ -1806,30 +1800,28 @@ export default function Servers() {
                     </div>
 
                     {/* Pagination Controls */}
-                    {totalPages > 1 && (
-                        <div className="flex items-center justify-between p-4 border-t border-surfaceHighlight/30 bg-surfaceHighlight/5">
-                            <div className="text-sm text-text-muted">
-                                Showing <span className="text-white font-medium">{Math.min(currentMappings.length, (currentPage - 1) * itemsPerPage + 1)}</span> to <span className="text-white font-medium">{Math.min(currentMappings.length, currentPage * itemsPerPage)}</span> of <span className="text-white font-medium">{currentMappings.length}</span> items
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <button
-                                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                                    disabled={currentPage === 1}
-                                    className="px-3 py-1.5 rounded-lg text-sm font-medium bg-surfaceHighlight/30 text-text-secondary hover:text-white hover:bg-surfaceHighlight disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                >
-                                    Previous
-                                </button>
-                                <span className="text-sm text-text-secondary">Page {currentPage} of {totalPages}</span>
-                                <button
-                                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                                    disabled={currentPage === totalPages}
-                                    className="px-3 py-1.5 rounded-lg text-sm font-medium bg-surfaceHighlight/30 text-text-secondary hover:text-white hover:bg-surfaceHighlight disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                >
-                                    Next
-                                </button>
-                            </div>
+                    <div className="flex items-center justify-between p-4 border-t border-surfaceHighlight/30 bg-surfaceHighlight/5">
+                        <div className="text-sm text-text-muted">
+                            Showing <span className="text-white font-medium">{Math.min(currentMappings.length, (currentPage - 1) * itemsPerPage + 1)}</span> to <span className="text-white font-medium">{Math.min(currentMappings.length, currentPage * itemsPerPage)}</span> of <span className="text-white font-medium">{currentMappings.length}</span> items
                         </div>
-                    )}
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                                disabled={currentPage === 1}
+                                className="px-3 py-1.5 rounded-lg text-sm font-medium bg-surfaceHighlight/30 text-text-secondary hover:text-white hover:bg-surfaceHighlight disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            >
+                                Previous
+                            </button>
+                            <span className="text-sm text-text-secondary">Page {currentPage} of {totalPages || 1}</span>
+                            <button
+                                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages || 1))}
+                                disabled={currentPage === (totalPages || 1)}
+                                className="px-3 py-1.5 rounded-lg text-sm font-medium bg-surfaceHighlight/30 text-text-secondary hover:text-white hover:bg-surfaceHighlight disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            >
+                                Next
+                            </button>
+                        </div>
+                    </div>
 
                 </div>
             </div>

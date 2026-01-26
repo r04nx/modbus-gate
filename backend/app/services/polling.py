@@ -101,6 +101,11 @@ class PollingEngine:
         self.store = GlobalDataStore()
         self._opcua_clients = {} # Cache for persistent OPC UA connections
         self._serial_locks = {} # Locks for serial ports to prevent racing
+        
+        # Smart Polling State
+        self._device_stats = {} # {device_id: {'failures': 0, 'backoff_until': 0}}
+        self.MAX_CONSECUTIVE_FAILURES = 3
+        self.BACKOFF_DURATION = 60 # seconds
 
     async def start(self):
         self.running = True
@@ -164,8 +169,19 @@ class PollingEngine:
 
                 # 2. Perform Polling (No DB Lock here!)
                 tasks = []
+                current_time = asyncio.get_event_loop().time()
+                
                 for dev_cfg in device_configs:
-                    tasks.append(self._poll_device_optimized(dev_cfg))
+                    dev_id = dev_cfg['id']
+                    
+                    # Check Backoff
+                    stats = self._device_stats.get(dev_id, {'failures': 0, 'backoff_until': 0})
+                    if stats['backoff_until'] > current_time:
+                         # Still in backoff
+                         continue
+                         
+                    # Create wrapper task to handle stats update
+                    tasks.append(self._poll_with_stats(dev_cfg, stats))
                 
                 if tasks:
                     await asyncio.gather(*tasks)
@@ -236,21 +252,45 @@ class PollingEngine:
         # Update store with fallback value (if any) and BAD quality
         await self.store.update_tag(tag_id, value, quality="BAD", error_message=error_msg)
 
+    async def _poll_with_stats(self, dev_cfg, stats):
+        dev_id = dev_cfg['id']
+        dev_name = dev_cfg['name']
+        
+        success = await self._poll_device_optimized(dev_cfg)
+        
+        if success:
+            # Reset on success
+            if stats['failures'] > 0:
+                logging.info(f"Device '{dev_name}' recovered from connection errors.")
+                stats['failures'] = 0
+                stats['backoff_until'] = 0
+        else:
+            # Increment failure count
+            stats['failures'] += 1
+            if stats['failures'] >= self.MAX_CONSECUTIVE_FAILURES:
+                backoff_time = self.BACKOFF_DURATION
+                stats['backoff_until'] = asyncio.get_event_loop().time() + backoff_time
+                logging.warning(f"Device '{dev_name}' unreachable (3 consecutive failures). Entering backoff mode for {backoff_time}s.")
+            
+        self._device_stats[dev_id] = stats
+
     async def _poll_device_optimized(self, device_cfg):
         try:
             dev_type = device_cfg['type']
             if dev_type == "MODBUS_TCP":
-                await self._poll_modbus_tcp(device_cfg)
+                return await self._poll_modbus_tcp(device_cfg)
             elif dev_type == "MODBUS_RTU":
-                await self._poll_modbus_rtu(device_cfg)
+                return await self._poll_modbus_rtu(device_cfg)
             elif dev_type == "OPC_UA":
-                await self._poll_opc_ua(device_cfg)
+                return await self._poll_opc_ua(device_cfg)
             elif dev_type == "SNMP":
-                await self._poll_snmp(device_cfg)
+                return await self._poll_snmp(device_cfg)
             elif dev_type == "IEC104":
-                await self._poll_iec104(device_cfg)
+                return await self._poll_iec104(device_cfg)
+            return True # Unknown type, assume true to avoid backoff loops on config errors (handled elsewhere)
         except Exception as e:
             logging.error(f"Error polling device {device_cfg['name']}: {e}")
+            return False
 
     # Legacy support
     async def _poll_device(self, device: models.Device):
@@ -271,7 +311,7 @@ class PollingEngine:
             dev_name = device.name
 
         client = AsyncModbusTcpClient(params.get("host"), port=int(params.get("port", 502)))
-        await self._poll_modbus_common(client, tags, params, dev_name)
+        return await self._poll_modbus_common(client, tags, params, dev_name)
 
     async def _poll_modbus_rtu(self, device):
         if isinstance(device, dict):
@@ -298,9 +338,10 @@ class PollingEngine:
             
             # PERFORMANCE DEBUG
             start_ts = asyncio.get_event_loop().time()
-            await self._poll_modbus_common(client, tags, params, dev_name)
+            result = await self._poll_modbus_common(client, tags, params, dev_name)
             duration = asyncio.get_event_loop().time() - start_ts
             logging.debug(f"PERF: Modbus RTU {dev_name} polled {len(tags)} tags in {duration:.4f}s")
+            return result
 
     async def _poll_modbus_common(self, client, tags, params, dev_name):
         try:
@@ -455,12 +496,12 @@ class PollingEngine:
                              except Exception as e:
                                  failed_tags = ", ".join([item['tag']['tag_id'] for item in items])
                                  logging.error(f"Modbus Batch Read Failed | Device: '{dev_name}' | StartAddr: {start} | Count: {count} | Error: {str(e)} | Affected Tags: [{failed_tags}]")
-                else:
                     # Connection failed
                     error_msg = f"Modbus Connection Error: Failed to connect to {params.get('host', 'device')}"
                     logging.error(error_msg)
                     for tag in tags:
                          await self._handle_error(tag, error_msg)
+                    return False
             finally:
                 client.close()
         except Exception as e:
@@ -468,6 +509,9 @@ class PollingEngine:
             logging.error(f"Error polling device {dev_name}: {error_msg}")
             for tag in tags:
                 await self._handle_error(tag, error_msg)
+            return False
+            
+        return True
 
     async def _poll_opc_ua(self, device):
         if isinstance(device, dict):
@@ -521,7 +565,7 @@ class PollingEngine:
                             except:
                                 pass
                             self._opcua_clients.pop(device_id, None)
-                            break # Stop processing tags for this device this cycle
+                            return False # Signal failure
 
         except Exception as e:
             error_msg = f"OPC UA Connection Error: {str(e)}"
@@ -532,6 +576,9 @@ class PollingEngine:
             
             for tag in tags:
                 await self._handle_error(tag, error_msg)
+            return False
+            
+        return True
 
     async def _poll_snmp(self, device):
         """Poll SNMP device with support for v1, v2c, and v3"""
@@ -647,6 +694,10 @@ class PollingEngine:
                     error_msg = f"SNMP Exception: {str(e)}"
                     logging.error(f"Error reading SNMP tag {t_id}: {error_msg}")
                     await self._handle_error(tag, error_msg)
+                    # For SNMP, single tag errors are common (OID missing), so we don't necessarily return False for device
+                    # unless it's a timeout which is usually handled by getCmd raising or returning error
+                    
+        return True
 
     async def _poll_iec104(self, device):
         # IEC104 is usually event-driven, but here we implement a simple poll (interrogation)
@@ -709,3 +760,6 @@ class PollingEngine:
             
         except Exception as e:
             logging.error(f"Error polling IEC104 device {dev_name}: {e}")
+            return False
+            
+        return True
