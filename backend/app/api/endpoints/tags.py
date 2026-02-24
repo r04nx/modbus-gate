@@ -291,8 +291,19 @@ async def export_tags(type: str, current_user: User = Depends(get_current_user),
     )
 
 @router.post("/import")
-async def import_tags(type: str, file: UploadFile = File(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Import tags from CSV filtered by type (IO, CALCULATION, USER)"""
+async def import_tags(type: str, replace: bool = False, dry_run: bool = False, file: UploadFile = File(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Import tags from CSV filtered by type (IO, CALCULATION, USER).
+    
+    Args:
+        type: Filter type
+        replace: If True, delete missing tags
+        dry_run: If True, return comparison analysis WITHOUT applying changes
+        file: CSV file
+        
+    Returns:
+        JSON with stats or (if dry_run) detailed analysis
+    """
     import csv
     import io
     import json
@@ -308,23 +319,59 @@ async def import_tags(type: str, file: UploadFile = File(...), current_user: Use
     decoded = content.decode('utf-8')
     csv_reader = csv.DictReader(io.StringIO(decoded))
     
+    # Store rows in list to process multiple times (for validation and processing)
+    rows = list(csv_reader)
+    
     created_count = 0
     updated_count = 0
+    deleted_count = 0
+    skipped_delete_count = 0 
     errors = []
     seen_tag_ids = set()
+    csv_tag_ids = set()
+    
+    # Analysis Result Structure
+    analysis = {
+        "summary": {"new": 0, "modified": 0, "deleted": 0, "unchanged": 0},
+        "changes": []
+    }
     
     # Pre-fetch devices for IO tags lookup
     devices_map = {}
     if type == "IO":
         devices = db.query(models.Device).all()
         devices_map = {d.name: d.id for d in devices}
+        # In dry_run, we also need reverse map for friendly display
+        id_to_device_name = {d.id: d.name for d in devices}
     
     def generate_tag_id(name):
         # Simple slugify: lowercase, replace spaces/specials with underscore
         clean = re.sub(r'[^a-zA-Z0-9]', '_', name.lower())
         return f"tag_{clean}"
 
-    for row_num, row in enumerate(csv_reader, start=2):  # Start at 2 (1 is header)
+    # Helpers for comparison
+    def compare_values(actual, incoming, field_name):
+        # Normalize for comparison
+        a = actual if actual is not None else ""
+        i = incoming if incoming is not None else ""
+        
+        # Determine if different
+        is_diff = str(a) != str(i)
+        
+        # Special handling for floats to avoid precision mismatch drift
+        if is_diff and isinstance(a, float):
+             try:
+                 if abs(a - float(i)) < 0.000001:
+                     is_diff = False
+             except:
+                 pass
+        
+        return is_diff, a, i
+
+    # 1. Parse CSV and Identify Tag IDs
+    processed_rows = []
+    
+    for row_num, row in enumerate(rows, start=2):
         try:
             tag_id = row.get('tag_id')
             name = row.get('name')
@@ -339,7 +386,6 @@ async def import_tags(type: str, file: UploadFile = File(...), current_user: Use
             
             if not name:
                 if tag_id:
-                     # Fallback if no colon: use tag_id as name
                      name = tag_id
                 else:
                     errors.append(f"Row {row_num}: Name or Tag ID is required")
@@ -347,21 +393,112 @@ async def import_tags(type: str, file: UploadFile = File(...), current_user: Use
 
             if not tag_id or tag_id.strip() == '':
                 tag_id = generate_tag_id(name)
-                # Ensure uniqueness for new tags if auto-generated
-                original_gen_id = tag_id
-                counter = 1
-                while db.query(models.Tag).filter(models.Tag.tag_id == tag_id).first():
-                    tag_id = f"{original_gen_id}_{counter}"
-                    counter += 1
             
-            # Check for duplicates within the CSV itself
             if tag_id in seen_tag_ids:
                 errors.append(f"Row {row_num}: Duplicate tag_id '{tag_id}' found in CSV file.")
                 continue
             seen_tag_ids.add(tag_id)
+            csv_tag_ids.add(tag_id)
+            
+            processed_rows.append({
+                'row_num': row_num,
+                'tag_id': tag_id,
+                'name': name,
+                'extracted_device_name': extracted_device_name,
+                'row_data': row
+            })
+            
+        except Exception as e:
+            errors.append(f"Row {row_num}: {str(e)}")
 
-            # Check if tag exists
-            existing_tag = db.query(models.Tag).filter(models.Tag.tag_id == tag_id).first()
+    if errors:
+         return {
+            "created": 0,
+            "updated": 0,
+            "deleted": 0,
+            "errors": errors,
+            "total_rows": len(rows),
+            "analysis": analysis if dry_run else None
+        }
+
+    # 2. Identify Missing Tags (Delete Candidates)
+    existing_tags = db.query(models.Tag).filter(models.Tag.type == type).all()
+    # Map for fast lookup
+    existing_tags_map = {t.tag_id: t for t in existing_tags}
+    
+    tags_to_delete = [t for t in existing_tags if t.tag_id not in csv_tag_ids]
+    
+    if dry_run:
+        # Analyze Deletions
+        for t in tags_to_delete:
+            analysis["summary"]["deleted"] += 1
+            analysis["changes"].append({
+                "tag_id": t.tag_id,
+                "status": "DELETED",
+                "data": {
+                    "name": t.name,
+                    "description": t.description
+                }
+            })
+    elif replace:
+        # Perform Deletions (Logic copied from previous step)
+        if tags_to_delete:
+            calc_tags = db.query(models.Tag).filter(models.Tag.type == "CALCULATION").all()
+            server_configs = db.query(models.ServerConfig).all()
+            
+            for db_tag in tags_to_delete:
+                can_delete = True
+                failure_reason = ""
+                
+                # Check Calculations
+                for ct in calc_tags:
+                    if ct.tag_id not in csv_tag_ids and ct.type == type: continue 
+                    if (ct.calculation_formula and db_tag.tag_id in ct.calculation_formula) or \
+                       (ct.variable_mappings and db_tag.tag_id in ct.variable_mappings.values()):
+                        can_delete = False
+                        failure_reason = f"Used in Calculation '{ct.name}'"
+                        break
+                
+                # Check Server Configs
+                if can_delete:
+                    for sc in server_configs:
+                        if not sc.config: continue
+                        mappings = sc.config.get('mappings', [])
+                        for m in mappings:
+                            if m.get('tag_id') == db_tag.tag_id:
+                                can_delete = False
+                                failure_reason = f"Mapped in {sc.type}"
+                                break
+                        if not can_delete: break
+                        if sc.type == "MQTT_PUBLISHER":
+                            pubs = sc.config.get('publications', [])
+                            for p in pubs:
+                                if db_tag.tag_id in p.get('tags', []):
+                                    can_delete = False
+                                    failure_reason = f"Used in MQTT Topic '{p.get('topic')}'"
+                                    break
+                
+                if can_delete:
+                    try:
+                        db.delete(db_tag)
+                        deleted_count += 1
+                    except Exception as e:
+                        errors.append(f"Failed to delete old tag {db_tag.tag_id}: {str(e)}")
+                        skipped_delete_count += 1
+                else:
+                    errors.append(f"Cannot replace/delete old tag '{db_tag.tag_id}': {failure_reason}")
+                    skipped_delete_count += 1
+
+    # 3. Process Rows (Upserts or Modification Analysis)
+    for item in processed_rows:
+        try:
+            row_num = item['row_num']
+            tag_id = item['tag_id']
+            name = item['name']
+            extracted_device_name = item['extracted_device_name']
+            row = item['row_data']
+            
+            existing_tag = existing_tags_map.get(tag_id)
             
             tag_data = {
                 'name': name,
@@ -372,35 +509,34 @@ async def import_tags(type: str, file: UploadFile = File(...), current_user: Use
                 'fallback_value': row.get('fallback_value', '')
             }
             
+            validation_error = None
+
             if type == "IO":
                 device_name = row.get('device_name')
                 if not device_name and extracted_device_name:
                     device_name = extracted_device_name
                 
                 if not device_name:
-                    errors.append(f"Row {row_num}: Device Name is required (column or in Tag ID 'Device:Tag')")
-                    continue
-                
-                device_id = devices_map.get(device_name)
-                if not device_id:
-                    errors.append(f"Row {row_num}: Device '{device_name}' not found")
-                    continue
-                
-                tag_data['device_id'] = device_id
-                tag_data['address'] = row.get('address', '')
-                tag_data['data_type'] = row.get('data_type', '')
-                
-                # Reconstruct params from flattened columns
-                params = {}
-                if row.get('register_type'): params['register_type'] = row.get('register_type')
-                if row.get('byte_order'): params['byte_order'] = row.get('byte_order')
-                if row.get('start_bit'): params['start_bit'] = int(row.get('start_bit'))
-                if row.get('bit_length'): params['length'] = int(row.get('bit_length'))
-                if row.get('span_low'): params['span_low'] = float(row.get('span_low'))
-                if row.get('span_high'): params['span_high'] = float(row.get('span_high'))
-                if row.get('soe'): params['soe'] = row.get('soe').lower() == 'true'
-                
-                tag_data['params'] = params
+                    validation_error = f"Row {row_num}: Device Name is required"
+                else:
+                    device_id = devices_map.get(device_name)
+                    if not device_id:
+                        validation_error = f"Row {row_num}: Device '{device_name}' not found"
+                    else:
+                        tag_data['device_id'] = device_id
+                        tag_data['address'] = row.get('address', '')
+                        tag_data['data_type'] = row.get('data_type', '')
+                        
+                        params = {}
+                        if row.get('register_type'): params['register_type'] = row.get('register_type')
+                        if row.get('byte_order'): params['byte_order'] = row.get('byte_order')
+                        if row.get('start_bit'): params['start_bit'] = int(row.get('start_bit'))
+                        if row.get('bit_length'): params['length'] = int(row.get('bit_length'))
+                        if row.get('span_low'): params['span_low'] = float(row.get('span_low'))
+                        if row.get('span_high'): params['span_high'] = float(row.get('span_high'))
+                        if row.get('soe'): params['soe'] = row.get('soe').lower() == 'true'
+                        
+                        tag_data['params'] = params
 
             elif type == "CALCULATION":
                 tag_data['calculation_formula'] = row.get('calculation_formula', '')
@@ -408,26 +544,91 @@ async def import_tags(type: str, file: UploadFile = File(...), current_user: Use
                 tag_data['initial_value'] = row.get('initial_value', '')
                 tag_data['data_type'] = row.get('data_type', 'STRING')
                 
-                # Update current value if provided
-                current_val = row.get('current_value')
-                if current_val is not None and current_val != '':
-                    store = GlobalDataStore()
-                    await store.update_tag(tag_id, current_val)
-            
-            if existing_tag:
-                # Update existing
-                for key, value in tag_data.items():
-                    setattr(existing_tag, key, value)
-                updated_count += 1
+            if validation_error:
+                errors.append(validation_error)
+                continue
+
+            if dry_run:
+                if existing_tag:
+                    # Check modifications
+                    modifications = {}
+                    
+                    # Check standard fields
+                    fields_to_check = ['name', 'description', 'fallback_type', 'fallback_value']
+                    if type == 'IO':
+                        fields_to_check.extend(['device_id', 'address', 'data_type'])
+                    elif type == 'CALCULATION':
+                        fields_to_check.append('calculation_formula')
+                    elif type == 'USER':
+                        fields_to_check.extend(['initial_value', 'data_type'])
+                        
+                    for field in fields_to_check:
+                        val = getattr(existing_tag, field)
+                        new_val = tag_data.get(field)
+                        is_diff, old, new = compare_values(val, new_val, field)
+                        
+                        # Friendly display for device_id
+                        if is_diff and field == 'device_id' and type == 'IO':
+                            old = id_to_device_name.get(old, str(old))
+                            new = id_to_device_name.get(new, str(new))
+                            
+                        if is_diff:
+                            modifications[field] = {"old": str(old), "new": str(new)}
+                            
+                    # Check Params for IO
+                    if type == 'IO':
+                        existing_params = existing_tag.params or {}
+                        new_params = tag_data.get('params', {})
+                        
+                        # Merge keys to check all
+                        all_keys = set(existing_params.keys()) | set(new_params.keys())
+                        for key in all_keys:
+                            is_diff, old, new = compare_values(existing_params.get(key), new_params.get(key), key)
+                            if is_diff:
+                                modifications[f"params.{key}"] = {"old": str(old), "new": str(new)}
+
+                    if modifications:
+                        analysis["summary"]["modified"] += 1
+                        analysis["changes"].append({
+                            "tag_id": tag_id,
+                            "status": "MODIFIED",
+                            "changes": modifications
+                        })
+                    else:
+                        analysis["summary"]["unchanged"] += 1
+                        
+                else:
+                    # New Tag
+                    analysis["summary"]["new"] += 1
+                    analysis["changes"].append({
+                        "tag_id": tag_id,
+                        "status": "NEW",
+                        "data": tag_data 
+                    })
             else:
-                # Create new
-                tag_data['tag_id'] = tag_id
-                db_tag = models.Tag(**tag_data)
-                db.add(db_tag)
-                created_count += 1
-            
+                # Actual DB Operations
+                if existing_tag:
+                    for key, value in tag_data.items():
+                        setattr(existing_tag, key, value)
+                    updated_count += 1
+                else:
+                    tag_data['tag_id'] = tag_id
+                    db_tag = models.Tag(**tag_data)
+                    db.add(db_tag)
+                    created_count += 1
+                
+                # Update current value for USER tags
+                if type == "USER":
+                    current_val = row.get('current_value')
+                    if current_val is not None and current_val != '':
+                         store = GlobalDataStore()
+                         await store.update_tag(tag_id, current_val)
+
         except Exception as e:
             errors.append(f"Row {row_num}: {str(e)}")
+            
+    if dry_run:
+         return {"analysis": analysis, "errors": errors}
     
     try:
         db.commit()
@@ -441,6 +642,8 @@ async def import_tags(type: str, file: UploadFile = File(...), current_user: Use
     return {
         "created": created_count,
         "updated": updated_count,
+        "deleted": deleted_count,
+        "skipped_deletes": skipped_delete_count,
         "errors": errors,
-        "total_rows": row_num - 1 if 'row_num' in locals() else 0
+        "total_rows": len(rows)
     }

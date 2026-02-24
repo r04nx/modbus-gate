@@ -8,6 +8,7 @@ import { Plus, Tag as TagIcon, Activity, Hash, Filter, RefreshCw, Download, Uplo
 import clsx from 'clsx';
 import Sparkline from '../components/Sparkline';
 import PopupChart from '../components/PopupChart';
+import TagImportAnalysisModal from '../components/TagImportAnalysisModal';
 import { useToast } from '../contexts/ToastContext';
 
 const Tags = () => {
@@ -28,9 +29,13 @@ const Tags = () => {
     const [historyLimit, setHistoryLimit] = useState(60);
 
     const [showWriteModal, setShowWriteModal] = useState(false);
-    const [writeTagData, setWriteTagData] = useState(null);
     const [writeValue, setWriteValue] = useState('');
     const [writing, setWriting] = useState(false);
+
+    // Import Analysis State
+    const [importAnalysis, setImportAnalysis] = useState(null);
+    const [importFile, setImportFile] = useState(null);
+
     const showToast = useToast();
 
     // Multi-select State
@@ -190,7 +195,7 @@ const Tags = () => {
         }
     };
 
-    const handleImport = async (event) => {
+    const handleImportFileSelect = async (event) => {
         if (filter === 'SYSTEM') {
             showToast.warning('Cannot import SYSTEM tags');
             return;
@@ -199,22 +204,51 @@ const Tags = () => {
         const file = event.target.files[0];
         if (!file) return;
 
+        // Reset file input value so same file can be selected again
+        event.target.value = '';
+
+        setImportFile(file);
+        setLoading(true);
+
         try {
-            const { data } = await importTags(filter, file);
-            showToast.success(`Import complete! Created: ${data.created}`);
+            // Perform Dry Run Analysis
+            const { data } = await importTags(filter, file, false, true); // dryRun=true
+
+            if (data.errors && data.errors.length > 0 && !data.analysis) {
+                showToast.error(`Analysis failed with ${data.errors.length} errors.`);
+                console.error(data.errors);
+            } else if (data.analysis) {
+                setImportAnalysis(data.analysis);
+            }
+        } catch (error) {
+            console.error("Failed to analyze import", error);
+            showToast.error("Failed to analyze file. Check console.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const confirmImport = async (replace) => {
+        if (!importFile) return;
+
+        setImportAnalysis(null); // Close modal
+        setLoading(true);
+
+        try {
+            const { data } = await importTags(filter, importFile, replace, false); // dryRun=false
+
+            showToast.success(`Import complete! Created: ${data.created}, Updated: ${data.updated}, Deleted: ${data.deleted || 0}`);
             if (data.errors.length > 0) {
-                // Show errors as separate toast or log
                 console.error("Import errors:", data.errors);
                 showToast.warning(`Import finished with ${data.errors.length} errors. Check console for details.`);
             }
             fetchTags();
         } catch (error) {
             console.error("Failed to import tags", error);
-            // Error handled by global interceptor
+        } finally {
+            setLoading(false);
+            setImportFile(null);
         }
-
-        // Reset file input
-        event.target.value = '';
     };
 
     const handleWriteSubmit = async (e) => {
@@ -371,7 +405,7 @@ const Tags = () => {
                             <input
                                 type="file"
                                 accept=".csv"
-                                onChange={handleImport}
+                                onChange={handleImportFileSelect}
                                 className="hidden"
                                 disabled={filter === 'ALL' || filter === 'SYSTEM'}
                             />
@@ -700,6 +734,15 @@ const Tags = () => {
                     {/* Arrow */}
                     <div className="absolute left-1/2 -translate-x-1/2 top-full -mt-1 border-8 border-transparent border-t-error filter drop-shadow-lg"></div>
                 </div>
+            )}
+
+            {importAnalysis && (
+                <TagImportAnalysisModal
+                    analysis={importAnalysis}
+                    onClose={() => { setImportAnalysis(null); setImportFile(null); }}
+                    onConfirm={confirmImport}
+                    type={filter}
+                />
             )}
 
             {showForm && <TagForm

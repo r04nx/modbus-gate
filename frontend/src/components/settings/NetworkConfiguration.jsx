@@ -8,7 +8,7 @@ const NetworkConfiguration = () => {
     const [activeTab, setActiveTab] = useState('ethernet'); // 'ethernet' | 'wifi'
     const [interfaces, setInterfaces] = useState([]);
     const [selectedInterface, setSelectedInterface] = useState('');
-    const [config, setConfig] = useState({ dhcp: true, ip_address: '', netmask: '', gateway: '' });
+    const [config, setConfig] = useState({ dhcp: true, ip_address: '', netmask: '' });
     const [connectivity, setConnectivity] = useState(null);
     const [loading, setLoading] = useState(false);
 
@@ -26,8 +26,7 @@ const NetworkConfiguration = () => {
                 setConfig({
                     dhcp: res.data[0].dhcp || false,
                     ip_address: res.data[0].ip_address || '',
-                    netmask: res.data[0].netmask || '',
-                    gateway: res.data[0].gateway || ''
+                    netmask: res.data[0].netmask || ''
                 });
             }
         } catch (error) {
@@ -51,8 +50,7 @@ const NetworkConfiguration = () => {
             setConfig({
                 dhcp: iface.dhcp || false,
                 ip_address: iface.ip_address || '',
-                netmask: iface.netmask || '',
-                gateway: iface.gateway || ''
+                netmask: iface.netmask || ''
             });
         }
     };
@@ -192,17 +190,7 @@ const NetworkConfiguration = () => {
                                     className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-400 transition-colors disabled:cursor-not-allowed disabled:bg-surfaceHighlight/10"
                                 />
                             </div>
-                            <div>
-                                <label className="block text-sm font-medium text-text-secondary mb-2">Gateway (Optional)</label>
-                                <input
-                                    type="text"
-                                    value={config.gateway}
-                                    onChange={(e) => setConfig({ ...config, gateway: e.target.value })}
-                                    placeholder="192.168.1.1"
-                                    disabled={config.dhcp}
-                                    className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-400 transition-colors disabled:cursor-not-allowed disabled:bg-surfaceHighlight/10"
-                                />
-                            </div>
+
                         </div>
 
                         <button

@@ -279,7 +279,6 @@ class InterfaceConfig(BaseModel):
     dhcp: bool
     ip_address: Optional[str] = None
     netmask: Optional[str] = None
-    gateway: Optional[str] = None
 
 
 class ConnectivityResponse(BaseModel):
@@ -573,9 +572,7 @@ def update_interface(
                 "ipv4.method", "manual",
                 "ipv4.addresses", f"{config.ip_address}/{cidr}"
             ]
-            
-            if config.gateway:
-                cmd.extend(["ipv4.gateway", config.gateway])
+
         
         print(f"[DEBUG] Executing command: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True)

@@ -7,6 +7,7 @@ import { TableSkeleton, FormSkeleton, Skeleton } from '../components/common/Skel
 import TagMappingSelector from '../components/TagMappingSelector';
 import JsonEditor from '../components/JsonEditor';
 import CertificateUpload from '../components/CertificateUpload';
+import TagImportAnalysisModal from '../components/TagImportAnalysisModal';
 
 // Helper to determine data size in registers
 const getDataSize = (dataType) => {
@@ -42,6 +43,7 @@ export default function Servers() {
     const [showTagSelector, setShowTagSelector] = useState(false);
     const [selectorContext, setSelectorContext] = useState(null); // 'MAPPING' or 'MQTT_PUB'
     const [currentPubId, setCurrentPubId] = useState(null);
+    const [replaceMode, setReplaceMode] = useState(true); // Default to true for sync behavior
     const [availableTags, setAvailableTags] = useState([]);
     const [devicesMap, setDevicesMap] = useState({});
     const [expandedItems, setExpandedItems] = useState({});
@@ -54,6 +56,11 @@ export default function Servers() {
     // Certificate State
     const [certificates, setCertificates] = useState([]);
     const [showCertUpload, setShowCertUpload] = useState(false);
+
+    // Import Analysis State
+    const [importAnalysis, setImportAnalysis] = useState(null);
+    const [importFile, setImportFile] = useState(null); // Not strictly needed if we process in memo, but good for flow
+    const [pendingImportData, setPendingImportData] = useState(null); // Store parsed data waiting for confirmation
 
     const toggleItem = (id) => {
         setExpandedItems(prev => ({ ...prev, [id]: !prev[id] }));
@@ -616,9 +623,9 @@ export default function Servers() {
                 return null;
             };
 
-            // Existing State
-            const existingMappings = config.config.mappings || [];
-            const existingPubs = config.config.publications || [];
+            // Existing State (Ignore if replacing)
+            const existingMappings = replaceMode ? [] : (config.config.mappings || []);
+            const existingPubs = replaceMode ? [] : (config.config.publications || []);
 
             // Conflict Checkers
             const isModbusConflict = (m1, m2) => {
@@ -822,11 +829,15 @@ export default function Servers() {
                 alert(`Import Failed!\nFound ${errors.length} issues:\n\n${errors.slice(0, 10).join('\n')}${errors.length > 10 ? '\n...and ' + (errors.length - 10) + ' more' : ''}`);
             } else {
                 if (newMappings.length > 0) {
-                    handleConfigChange('mappings', [...existingMappings, ...newMappings]);
-                    alert(`Import Successful!\nAdded ${newMappings.length} new mappings.\n(Skipped ${((lines.length - 1) - newMappings.length)} duplicates)`);
+                    // If replace mode, we use only newMappings (we already ignored existing in conflict check)
+                    // If not replace mode, we append (and duplicates were skipped/alerted already)
+                    const finalMappings = replaceMode ? newMappings : [...(config.config.mappings || []), ...newMappings];
+                    handleConfigChange('mappings', finalMappings);
+                    alert(`Import Successful!\n${replaceMode ? 'Replaced list with' : 'Added'} ${newMappings.length} mappings.`);
                 } else if (newPublications.length > 0) {
-                    handleConfigChange('publications', [...existingPubs, ...newPublications]);
-                    alert(`Import Successful!\nAdded ${newPublications.length} new publications.\n(Skipped ${((lines.length - 1) - newPublications.length)} duplicates)`);
+                    const finalPubs = replaceMode ? newPublications : [...(config.config.publications || []), ...newPublications];
+                    handleConfigChange('publications', finalPubs);
+                    alert(`Import Successful!\n${replaceMode ? 'Replaced list with' : 'Added'} ${newPublications.length} publications.`);
                 } else {
                     alert('No new unique mappings found to import.');
                 }
