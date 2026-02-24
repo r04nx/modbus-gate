@@ -32,12 +32,18 @@ export const setupInterceptors = (showToast) => {
         (error) => {
             let message = error.response?.data?.detail || error.message || "An unexpected error occurred";
 
-            // Handle Pydantic Validation Errors (Array of objects)
+            // Handle structured error objects from the API
             if (typeof message === 'object') {
                 try {
                     if (Array.isArray(message)) {
-                        // Extract msgs from pydantic array
+                        // Pydantic validation error array: [{loc, msg, type}]
                         message = message.map(err => `${err.loc.join('.')} : ${err.msg}`).join('\n');
+                    } else if (message.message) {
+                        // Our custom {message, errors[]} shape
+                        message = message.message;
+                    } else if (message.errors?.length) {
+                        // Fallback: show first error
+                        message = `Import error: ${message.errors[0]}`;
                     } else {
                         message = JSON.stringify(message);
                     }
@@ -75,6 +81,14 @@ export const createDevice = (device) => api.post('/devices/', device);
 export const updateDevice = (id, device) => api.patch(`/devices/${id}`, device);
 export const deleteDevice = (id) => api.delete(`/devices/${id}`);
 export const testDeviceConnection = (id) => api.post(`/devices/${id}/test`);
+export const exportDevices = () => api.get('/devices/export', { responseType: 'blob' });
+export const importDevices = (file, replace = false, dryRun = false) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post(`/devices/import?replace=${replace}&dry_run=${dryRun}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    });
+};
 
 export const getTags = (limit = 100000) => api.get(`/tags/?limit=${limit}`);
 export const createTag = (tag) => api.post('/tags/', tag);
@@ -82,10 +96,10 @@ export const updateTag = (id, tag) => api.patch(`/tags/${id}`, tag);
 export const deleteTag = (id) => api.delete(`/tags/${id}`);
 export const getTagValues = (historyLimit = 60) => api.get('/tags/values', { params: { history_limit: historyLimit } });
 export const exportTags = (type) => api.get(`/tags/export?type=${type}`, { responseType: 'blob' });
-export const importTags = (type, file) => {
+export const importTags = (type, file, replace = false, dryRun = false) => {
     const formData = new FormData();
     formData.append('file', file);
-    return api.post(`/tags/import?type=${type}`, formData, {
+    return api.post(`/tags/import?type=${type}&replace=${replace}&dry_run=${dryRun}`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
     });
 };
