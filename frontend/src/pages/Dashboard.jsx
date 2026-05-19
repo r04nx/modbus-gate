@@ -65,7 +65,12 @@ const Dashboard = () => {
     const [serverStatus, setServerStatus] = useState({
         modbus: false,
         opcua: false,
-        iec104: false
+        iec104: false,
+        ports: {
+            modbus: 5020,
+            opcua: 4840,
+            iec104: 2404
+        }
     });
 
     useEffect(() => {
@@ -136,7 +141,12 @@ const Dashboard = () => {
                 setServerStatus({
                     modbus: modbus.data.enabled,
                     opcua: opcua.data.enabled,
-                    iec104: iec104.data.enabled
+                    iec104: iec104.data.enabled,
+                    ports: {
+                        modbus: modbus.data.config?.port || 5020,
+                        opcua: opcua.data.config?.port || 4840,
+                        iec104: iec104.data.config?.port || 2404
+                    }
                 });
             } catch (error) {
                 console.error("Failed to fetch server status", error);
@@ -271,21 +281,21 @@ const Dashboard = () => {
                                         <div className={clsx("w-2 h-2 rounded-full shadow-[0_0_8px_rgba(52,211,153,0.6)]", serverStatus.modbus ? "bg-emerald-400 animate-pulse" : "bg-red-500")} />
                                         <span className="text-text-secondary">Modbus Server</span>
                                     </div>
-                                    <span className="text-white font-medium text-sm">Port 5020</span>
+                                    <span className="text-white font-medium text-sm">Port {serverStatus.ports?.modbus || 5020}</span>
                                 </div>
                                 <div className="flex justify-between items-center p-3 bg-surfaceHighlight/20 rounded-xl">
                                     <div className="flex items-center gap-3">
                                         <div className={clsx("w-2 h-2 rounded-full shadow-[0_0_8px_rgba(52,211,153,0.6)]", serverStatus.opcua ? "bg-emerald-400 animate-pulse" : "bg-red-500")} />
                                         <span className="text-text-secondary">OPC UA Server</span>
                                     </div>
-                                    <span className="text-white font-medium text-sm">Port 4840</span>
+                                    <span className="text-white font-medium text-sm">Port {serverStatus.ports?.opcua || 4840}</span>
                                 </div>
                                 <div className="flex justify-between items-center p-3 bg-surfaceHighlight/20 rounded-xl">
                                     <div className="flex items-center gap-3">
                                         <div className={clsx("w-2 h-2 rounded-full shadow-[0_0_8px_rgba(52,211,153,0.6)]", serverStatus.iec104 ? "bg-emerald-400 animate-pulse" : "bg-red-500")} />
                                         <span className="text-text-secondary">IEC104 Server</span>
                                     </div>
-                                    <span className="text-white font-medium text-sm">Port 2404</span>
+                                    <span className="text-white font-medium text-sm">Port {serverStatus.ports?.iec104 || 2404}</span>
                                 </div>
                             </div>
                         </div>

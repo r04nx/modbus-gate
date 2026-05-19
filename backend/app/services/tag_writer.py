@@ -47,8 +47,8 @@ class TagWriterService:
         port = params.get("port", 502)
         slave_id = params.get("slave_id", 1)
         
+        client = AsyncModbusTcpClient(host, port=port, timeout=3)
         try:
-            client = AsyncModbusTcpClient(host, port=port, timeout=3)
             await client.connect()
             
             if not client.connected:
@@ -61,7 +61,6 @@ class TagWriterService:
             try:
                 int_value = int(value)
             except (ValueError, TypeError):
-                client.close()
                 return False, f"Invalid value for Modbus write: {value}"
             
             # Write based on register type
@@ -72,10 +71,7 @@ class TagWriterService:
                 bool_value = bool(int_value)
                 result = await client.write_coil(addr, bool_value, slave=slave_id)
             else:
-                client.close()
                 return False, f"Cannot write to {register_type} registers (read-only)"
-            
-            client.close()
             
             if result and not result.isError():
                 return True, f"Successfully wrote {value} to {register_type} register {addr}"
@@ -84,20 +80,22 @@ class TagWriterService:
                 
         except Exception as e:
             return False, f"Modbus TCP write exception: {str(e)}"
+        finally:
+            client.close()
     
     async def _write_modbus_rtu(self, device: models.Device, tag: models.Tag, value) -> Tuple[bool, str]:
         """Write to Modbus RTU device"""
         params = device.connection_params
         
+        client = AsyncModbusSerialClient(
+            params.get("port"),
+            baudrate=params.get("baudrate", 9600),
+            bytesize=params.get("bytesize", 8),
+            parity=params.get("parity", "N"),
+            stopbits=params.get("stopbits", 1),
+            timeout=3
+        )
         try:
-            client = AsyncModbusSerialClient(
-                params.get("port"),
-                baudrate=params.get("baudrate", 9600),
-                bytesize=params.get("bytesize", 8),
-                parity=params.get("parity", "N"),
-                stopbits=params.get("stopbits", 1),
-                timeout=3
-            )
             await client.connect()
             
             if not client.connected:
@@ -111,7 +109,6 @@ class TagWriterService:
             try:
                 int_value = int(value)
             except (ValueError, TypeError):
-                client.close()
                 return False, f"Invalid value for Modbus write: {value}"
             
             # Write based on register type
@@ -122,10 +119,7 @@ class TagWriterService:
                 bool_value = bool(int_value)
                 result = await client.write_coil(addr, bool_value, slave=slave_id)
             else:
-                client.close()
                 return False, f"Cannot write to {register_type} registers (read-only)"
-            
-            client.close()
             
             if result and not result.isError():
                 return True, f"Successfully wrote {value} to {register_type} register {addr}"
@@ -134,6 +128,8 @@ class TagWriterService:
                 
         except Exception as e:
             return False, f"Modbus RTU write exception: {str(e)}"
+        finally:
+            client.close()
     
     async def _write_snmp(self, device: models.Device, tag: models.Tag, value) -> Tuple[bool, str]:
         """Write to SNMP device using SET command"""

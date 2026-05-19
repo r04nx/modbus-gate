@@ -9,8 +9,15 @@ from app.core.auth import get_current_user
 from app.models import models
 from app.models.user import User
 from app.schemas import server as schemas
+from app.services.mqtt_publisher import get_broker_statuses
 
 router = APIRouter()
+
+@router.get("/MQTT_PUBLISHER/broker-status")
+def mqtt_broker_status(current_user: User = Depends(get_current_user)):
+    """Return live MQTT broker connection states from the publisher service."""
+    return get_broker_statuses()
+
 
 @router.get("/", response_model=List[schemas.ServerConfig])
 def read_servers(skip: int = 0, limit: int = 100, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):

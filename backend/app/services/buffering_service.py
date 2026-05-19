@@ -353,7 +353,46 @@ class BufferingService:
 
     async def cleanup_old_files(self, db: Session, max_age_days: int):
         """Cleanup files older than max_age_days."""
-        # Implementation for cleanup logic...
-        pass
+        try:
+            cutoff = time.time() - (max_age_days * 86400)
+            
+            # Find outdated outages in DB
+            outdated_outages = db.query(Outage).filter(
+                Outage.csv_filename.isnot(None),
+                Outage.end_time != None
+            ).all()
+
+            deleted_count = 0
+            for outage in outdated_outages:
+                # Check file modification time
+                filepath = BUFFER_FILES_DIR / outage.csv_filename
+                if filepath.exists():
+                    if filepath.stat().st_mtime < cutoff:
+                        # Attempt to delete file
+                        try:
+                            os.unlink(filepath)
+                        except Exception as e:
+                            logger.error(f"Failed to delete old file {filepath}: {e}")
+                            continue
+
+                        # Delete DB record after successful file deletion
+                        db.delete(outage)
+                        deleted_count += 1
+                else:
+                    # Database has record but file is missing. Let's clean up according to age of the outage
+                    if outage.end_time and outage.end_time.timestamp() < cutoff:
+                        db.delete(outage)
+                        deleted_count += 1
+                        
+            if deleted_count > 0:
+                try:
+                    db.commit()
+                    logger.info(f"Cleaned up {deleted_count} old buffered outage records and files.")
+                except Exception as e:
+                    db.rollback()
+                    logger.error(f"Failed to commit cleanup to DB: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Error during cleanup of old buffered files: {e}")
 
 buffering_service = BufferingService()

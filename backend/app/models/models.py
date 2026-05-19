@@ -7,6 +7,7 @@ from datetime import datetime
 from .user import User, Session, UserRole
 from .storage_policy import StoragePolicy, PolicyType, TimeUnit
 from .system_settings import SystemSettings
+from .datastore import DataStoreConfig, DataStoreRecord
 
 class Device(Base):
     __tablename__ = "devices"

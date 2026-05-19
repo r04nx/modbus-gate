@@ -9,12 +9,14 @@ logging.getLogger('asyncua').setLevel(logging.WARNING)
 class OPCUAServerService:
     def __init__(self):
         self.port = 4840
-        self.endpoint = "opc.tcp://0.0.0.0:4840/freeopcua/server/"
+        self.endpoint = "opc.tcp://0.0.0.0:4840/vistaiot/server/"
         self.server = Server()
         self.server_task = None
         self.running = False
         self.namespace_idx = 2
         self.mapped_nodes = {} # tag_id -> node
+        self.folders_cache = {} # cache for dynamic folders
+        self._last_mappings_hash = None # detect config changes
 
     async def start(self):
         # Load config from DB
@@ -33,8 +35,11 @@ class OPCUAServerService:
             db = SessionLocal()
             config = db.query(models.ServerConfig).filter(models.ServerConfig.type == "OPC_UA_SERVER").first()
             if config and config.enabled:
-                self.port = int(config.config.get("port", 4840))
-                self.endpoint = config.config.get("endpoint", f"opc.tcp://0.0.0.0:{self.port}/freeopcua/server/")
+                raw_port = config.config.get("port")
+                self.port = int(raw_port) if raw_port else 4840
+                
+                raw_endpoint = config.config.get("endpoint")
+                self.endpoint = raw_endpoint if raw_endpoint else f"opc.tcp://0.0.0.0:{self.port}/vistaiot/server/"
             db.close()
         except Exception as e:
             logging.error(f"Error loading OPC UA Server config: {e}")
@@ -51,9 +56,9 @@ class OPCUAServerService:
             uri = "http://vistaiot.com"
             self.namespace_idx = await self.server.register_namespace(uri)
             
-            # Create a folder for tags
+            # Initialize Root folders cache
             objects = self.server.nodes.objects
-            self.tags_folder = await objects.add_folder(self.namespace_idx, "Tags")
+            self.folders_cache = {}
             
             async with self.server:
                 self.running = True
@@ -84,8 +89,13 @@ class OPCUAServerService:
                     config = db.query(models.ServerConfig).filter(models.ServerConfig.type == "OPC_UA_SERVER").first()
                     if config:
                         new_enabled = config.enabled
-                        new_port = int(config.config.get("port", 4840))
-                        new_endpoint = config.config.get("endpoint", f"opc.tcp://0.0.0.0:{new_port}/freeopcua/server/")
+                        
+                        raw_port = config.config.get("port")
+                        new_port = int(raw_port) if raw_port else 4840
+                        
+                        raw_endpoint = config.config.get("endpoint")
+                        new_endpoint = raw_endpoint if raw_endpoint else f"opc.tcp://0.0.0.0:{new_port}/vistaiot/server/"
+                        
                         if new_enabled:
                             mappings = config.config.get("mappings", [])
                     db.close()
@@ -98,6 +108,17 @@ class OPCUAServerService:
                     restart_needed = True
                 elif new_enabled and (new_port != self.port or new_endpoint != self.endpoint):
                     restart_needed = True
+                elif new_enabled and self.running:
+                    # Also restart if mappings group structure changed
+                    import json as _json
+                    new_mappings_hash = hash(_json.dumps(
+                        [(m.get("tag_id"), m.get("node_name"), m.get("group_name", "Tags")) for m in mappings],
+                        sort_keys=True
+                    ))
+                    if self._last_mappings_hash is not None and new_mappings_hash != self._last_mappings_hash:
+                        logging.info("OPC UA mappings/groups changed — restarting server to rebuild tree...")
+                        restart_needed = True
+                    self._last_mappings_hash = new_mappings_hash
 
                 if restart_needed:
                     logging.info(f"OPC UA Config changed. Restarting server... (Enabled: {new_enabled}, Port: {new_port})")
@@ -146,6 +167,7 @@ class OPCUAServerService:
                     
                     # Node Name/ID
                     node_name = mapping.get("node_name", tag_id)
+                    group_name = mapping.get("group_name", "Tags")
                     
                     # Check if node exists
                     if tag_id not in self.mapped_nodes:
@@ -159,13 +181,25 @@ class OPCUAServerService:
                             from asyncua import ua
                             node_id = ua.NodeId(node_name, self.namespace_idx, ua.NodeIdType.String)
                             
-                            # Note: In a real restart scenario, self.tags_folder needs to be re-acquired.
-                            # The _run_server method sets self.tags_folder.
-                            if hasattr(self, 'tags_folder') and self.tags_folder:
-                                node = await self.tags_folder.add_variable(node_id, node_name, initial_val)
-                                await node.set_writable()
-                                self.mapped_nodes[tag_id] = node
-                                logging.info(f"Created OPC UA node for {tag_id} as {node_name} with NodeId ns={self.namespace_idx};s={node_name}")
+                            # Dynamically resolve Group Path hierarchical folders
+                            parts = [p.strip() for p in group_name.split("/") if p.strip()]
+                            if not parts:
+                                parts = ["Tags"]
+                                
+                            current_folder = self.server.nodes.objects
+                            current_path_str = ""
+                            
+                            for part in parts:
+                                current_path_str = f"{current_path_str}/{part}" if current_path_str else part
+                                if current_path_str not in self.folders_cache:
+                                    new_folder = await current_folder.add_folder(self.namespace_idx, part)
+                                    self.folders_cache[current_path_str] = new_folder
+                                current_folder = self.folders_cache[current_path_str]
+                            
+                            node = await current_folder.add_variable(node_id, node_name, initial_val)
+                            await node.set_writable()
+                            self.mapped_nodes[tag_id] = node
+                            logging.info(f"Created OPC UA node for {tag_id} as {node_name} under {group_name} with NodeId ns={self.namespace_idx};s={node_name}")
                         except Exception as e:
                             logging.error(f"Error creating node for {tag_id}: {e}")
                             continue
@@ -179,6 +213,7 @@ class OPCUAServerService:
                             # Node might be invalid if server restarted
                             if "BadSessionIdInvalid" in str(e) or "BadSecureChannelIdInvalid" in str(e):
                                 self.mapped_nodes = {} # Clear cache to force recreation
+                                self.folders_cache = {}
                             pass
                             
             except Exception as e:

@@ -316,7 +316,22 @@ async def import_tags(type: str, replace: bool = False, dry_run: bool = False, f
     
     # Read file content
     content = await file.read()
-    decoded = content.decode('utf-8')
+    try:
+        decoded = content.decode('utf-8-sig') # also handles BOM
+    except UnicodeDecodeError:
+        try:
+            decoded = content.decode('latin-1')
+        except Exception as e:
+            if dry_run:
+                return {
+                    "analysis": {"summary": {"new":0, "modified":0, "deleted":0, "unchanged":0}, "changes": []}, 
+                    "errors": [f"File decoding error: {str(e)} Please ensure it is saved as UTF-8."]
+                }
+            return {
+                "created": 0, "updated": 0, "deleted": 0, "skipped_deletes": 0, 
+                "errors": [f"File decoding error: {str(e)} Please ensure it is saved as UTF-8."], "total_rows": 0
+            }
+
     csv_reader = csv.DictReader(io.StringIO(decoded))
     
     # Store rows in list to process multiple times (for validation and processing)
@@ -391,7 +406,7 @@ async def import_tags(type: str, replace: bool = False, dry_run: bool = False, f
                     errors.append(f"Row {row_num}: Name or Tag ID is required")
                     continue
 
-            if not tag_id or tag_id.strip() == '':
+            if not tag_id or str(tag_id).strip() == '':
                 tag_id = generate_tag_id(name)
             
             if tag_id in seen_tag_ids:
@@ -534,7 +549,7 @@ async def import_tags(type: str, replace: bool = False, dry_run: bool = False, f
                         if row.get('bit_length'): params['length'] = int(row.get('bit_length'))
                         if row.get('span_low'): params['span_low'] = float(row.get('span_low'))
                         if row.get('span_high'): params['span_high'] = float(row.get('span_high'))
-                        if row.get('soe'): params['soe'] = row.get('soe').lower() == 'true'
+                        if row.get('soe') is not None and str(row.get('soe')).strip() != '': params['soe'] = str(row.get('soe')).lower() == 'true'
                         
                         tag_data['params'] = params
 

@@ -192,18 +192,45 @@ const TagMappingSelector = ({ isOpen, onClose, onSelect, mappedTags = [], title 
                             }
 
                             const isExpanded = expandedDevices.has(deviceId);
+                            const unmappedTags = deviceTags.filter(t => !mappedTags.includes(t.tag_id));
+                            const allSelected = unmappedTags.length > 0 && unmappedTags.every(t => selectedTags.includes(t.tag_id));
 
                             return (
                                 <div key={deviceId} className="border border-surfaceHighlight/30 rounded-xl overflow-hidden bg-surfaceHighlight/5">
-                                    <button
-                                        onClick={() => toggleDevice(deviceId)}
-                                        className="w-full flex items-center gap-2 px-4 py-3 bg-surfaceHighlight/10 hover:bg-surfaceHighlight/20 transition-colors text-left"
-                                    >
-                                        {isExpanded ? <ChevronDown size={16} className="text-text-muted" /> : <ChevronRight size={16} className="text-text-muted" />}
-                                        <DeviceIcon size={18} className="text-primary" />
-                                        <span className="font-medium text-white">{deviceName}</span>
-                                        <span className="ml-auto text-xs text-text-muted">({deviceTags.length} tags)</span>
-                                    </button>
+                                    <div className="w-full flex items-center bg-surfaceHighlight/10 hover:bg-surfaceHighlight/20 transition-colors">
+                                        <button
+                                            onClick={() => toggleDevice(deviceId)}
+                                            className="flex-1 flex items-center gap-2 px-4 py-3 text-left"
+                                        >
+                                            {isExpanded ? <ChevronDown size={16} className="text-text-muted" /> : <ChevronRight size={16} className="text-text-muted" />}
+                                            <DeviceIcon size={18} className="text-primary" />
+                                            <span className="font-medium text-white">{deviceName}</span>
+                                        </button>
+                                        <div className="flex items-center gap-4 px-4">
+                                            <span className="text-xs text-text-muted">({deviceTags.length} tags)</span>
+                                            {unmappedTags.length > 0 && (
+                                                <input
+                                                    type="checkbox"
+                                                    checked={allSelected}
+                                                    onChange={(e) => {
+                                                        const checked = e.target.checked;
+                                                        const newTagIds = unmappedTags.map(t => t.tag_id);
+                                                        
+                                                        if (checked) {
+                                                            setSelectedTags(prev => {
+                                                                const combined = new Set([...prev, ...newTagIds]);
+                                                                return Array.from(combined);
+                                                            });
+                                                        } else {
+                                                            setSelectedTags(prev => prev.filter(id => !newTagIds.includes(id)));
+                                                        }
+                                                    }}
+                                                    className="w-4 h-4 rounded border-surfaceHighlight/50 bg-surfaceHighlight/20 text-primary focus:ring-primary focus:ring-offset-0 cursor-pointer"
+                                                    title={`Select all ${unmappedTags.length} tags in ${deviceName}`}
+                                                />
+                                            )}
+                                        </div>
+                                    </div>
 
                                     {isExpanded && (
                                         <div className="bg-black/20 divide-y divide-surfaceHighlight/10">

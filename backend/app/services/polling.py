@@ -94,8 +94,15 @@ def convert_byte_order(registers, byte_order='ABCD', data_type='FLOAT32'):
     
     return None
 
-
 class PollingEngine:
+    _instance = None
+
+    @classmethod
+    def get_instance(cls):
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
     def __init__(self):
         self.running = False
         self.store = GlobalDataStore()
@@ -103,9 +110,14 @@ class PollingEngine:
         self._serial_locks = {} # Locks for serial ports to prevent racing
         
         # Smart Polling State
-        self._device_stats = {} # {device_id: {'failures': 0, 'backoff_until': 0}}
+        self._device_stats = {} # {device_id: {'failures': 0, 'backoff_until': 0, 'last_error': '', 'status': 'OK'}}
+        self._modbus_clients = {} # Cache for persistent Modbus connections
         self.MAX_CONSECUTIVE_FAILURES = 3
         self.BACKOFF_DURATION = 60 # seconds
+
+    def get_health_status(self):
+        """Returns the current health status of all polled devices"""
+        return self._device_stats
 
     async def start(self):
         self.running = True
@@ -195,8 +207,8 @@ class PollingEngine:
                 logging.error(f"Error in polling loop: {e}")
             
             # Simple rate limiting - aim for 1 second loop if possible, or immediate if lagging
-            elapsed = asyncio.get_event_loop().time() - start_time
-            sleep_time = max(0.1, 1.0 - elapsed)
+            elapsed_total = asyncio.get_event_loop().time() - start_time
+            sleep_time = max(0.1, 1.0 - elapsed_total)
             await asyncio.sleep(sleep_time)
 
     async def _handle_error(self, tag, error_msg):
@@ -255,24 +267,57 @@ class PollingEngine:
     async def _poll_with_stats(self, dev_cfg, stats):
         dev_id = dev_cfg['id']
         dev_name = dev_cfg['name']
+        tag_count = len(dev_cfg.get('tags', []))
         
-        success = await self._poll_device_optimized(dev_cfg)
+        start_ts = asyncio.get_event_loop().time()
+        success, error_msg = await self._poll_device_optimized(dev_cfg)
+        duration = asyncio.get_event_loop().time() - start_ts
         
+        current_time = asyncio.get_event_loop().time()
+        
+        # Calculate moving average for response time
+        avg_resp = stats.get('avg_response_time', 0)
+        if avg_resp == 0:
+            avg_resp = duration
+        else:
+            # 80/20 moving average
+            avg_resp = (avg_resp * 0.8) + (duration * 0.2)
+            
         if success:
             # Reset on success
-            if stats['failures'] > 0:
+            if stats.get('failures', 0) > 0:
                 logging.info(f"Device '{dev_name}' recovered from connection errors.")
-                stats['failures'] = 0
-                stats['backoff_until'] = 0
+            
+            self._device_stats[dev_id] = {
+                'failures': 0,
+                'backoff_until': 0,
+                'last_poll': current_time,
+                'status': 'OK',
+                'last_error': None,
+                'avg_response_time': round(avg_resp, 4),
+                'tag_count': tag_count
+            }
         else:
             # Increment failure count
-            stats['failures'] += 1
-            if stats['failures'] >= self.MAX_CONSECUTIVE_FAILURES:
-                backoff_time = self.BACKOFF_DURATION
-                stats['backoff_until'] = asyncio.get_event_loop().time() + backoff_time
-                logging.warning(f"Device '{dev_name}' unreachable (3 consecutive failures). Entering backoff mode for {backoff_time}s.")
+            failures = stats.get('failures', 0) + 1
+            backoff_until = stats.get('backoff_until', 0)
+            status = 'ERROR'
             
-        self._device_stats[dev_id] = stats
+            if failures >= self.MAX_CONSECUTIVE_FAILURES:
+                backoff_time = self.BACKOFF_DURATION
+                backoff_until = current_time + backoff_time
+                status = 'BACKOFF'
+                logging.warning(f"Device '{dev_name}' unreachable ({failures} consecutive failures). Entering backoff mode for {backoff_time}s.")
+            
+            self._device_stats[dev_id] = {
+                'failures': failures,
+                'backoff_until': backoff_until,
+                'last_poll': current_time,
+                'status': status,
+                'last_error': error_msg,
+                'avg_response_time': round(avg_resp, 4),
+                'tag_count': tag_count
+            }
 
     async def _poll_device_optimized(self, device_cfg):
         try:
@@ -287,10 +332,9 @@ class PollingEngine:
                 return await self._poll_snmp(device_cfg)
             elif dev_type == "IEC104":
                 return await self._poll_iec104(device_cfg)
-            return True # Unknown type, assume true to avoid backoff loops on config errors (handled elsewhere)
+            return True, None
         except Exception as e:
-            logging.error(f"Error polling device {device_cfg['name']}: {e}")
-            return False
+            return False, str(e)
 
     # Legacy support
     async def _poll_device(self, device: models.Device):
@@ -300,215 +344,147 @@ class PollingEngine:
         pass
 
     async def _poll_modbus_tcp(self, device):
-        # device can be dict or ORM object, handle access
-        if isinstance(device, dict):
-            params = device['connection_params']
-            tags = device['tags']
-            dev_name = device['name']
-        else:
-            params = device.connection_params
-            tags = device.tags
-            dev_name = device.name
+        params = device['connection_params'] if isinstance(device, dict) else device.connection_params
+        tags = device['tags'] if isinstance(device, dict) else device.tags
+        dev_name = device['name'] if isinstance(device, dict) else device.name
+        dev_id = device['id'] if isinstance(device, dict) else device.id
 
-        client = AsyncModbusTcpClient(params.get("host"), port=int(params.get("port", 502)))
-        return await self._poll_modbus_common(client, tags, params, dev_name)
+        host = params.get("host")
+        port = int(params.get("port", 502))
+        client_key = f"tcp_{host}_{port}"
+
+        if client_key not in self._modbus_clients:
+            self._modbus_clients[client_key] = AsyncModbusTcpClient(host, port=port)
+        
+        client = self._modbus_clients[client_key]
+        success = await self._poll_modbus_common(client, tags, params, dev_name, client_key)
+        error_msg = None if success else f"Failed to connect or poll Modbus TCP at {host}:{port}"
+        return success, error_msg
 
     async def _poll_modbus_rtu(self, device):
-        if isinstance(device, dict):
-            params = device['connection_params']
-            tags = device['tags']
-            dev_name = device['name']
-        else:
-            params = device.connection_params
-            tags = device.tags
-            dev_name = device.name
+        params = device['connection_params'] if isinstance(device, dict) else device.connection_params
+        tags = device['tags'] if isinstance(device, dict) else device.tags
+        dev_name = device['name'] if isinstance(device, dict) else device.name
+        dev_id = device['id'] if isinstance(device, dict) else device.id
 
         port = params.get("port")
+        client_key = f"serial_{port}"
+
         if port not in self._serial_locks:
             self._serial_locks[port] = asyncio.Lock()
             
         async with self._serial_locks[port]:
-            client = AsyncModbusSerialClient(
-                port, 
-                baudrate=int(params.get("baudrate", 9600)),
-                bytesize=int(params.get("bytesize", 8)),
-                parity=params.get("parity", "N"),
-                stopbits=int(params.get("stopbits", 1))
-            )
+            if client_key not in self._modbus_clients:
+                self._modbus_clients[client_key] = AsyncModbusSerialClient(
+                    port, 
+                    baudrate=int(params.get("baudrate", 9600)),
+                    bytesize=int(params.get("bytesize", 8)),
+                    parity=params.get("parity", "N"),
+                    stopbits=int(params.get("stopbits", 1))
+                )
+            
+            client = self._modbus_clients[client_key]
             
             # PERFORMANCE DEBUG
             start_ts = asyncio.get_event_loop().time()
-            result = await self._poll_modbus_common(client, tags, params, dev_name)
+            success = await self._poll_modbus_common(client, tags, params, dev_name, client_key)
             duration = asyncio.get_event_loop().time() - start_ts
             logging.debug(f"PERF: Modbus RTU {dev_name} polled {len(tags)} tags in {duration:.4f}s")
-            return result
+            
+            error_msg = None if success else f"Failed to connect or poll Modbus RTU on {port}"
+            return success, error_msg
 
-    async def _poll_modbus_common(self, client, tags, params, dev_name):
+    async def _poll_modbus_common(self, client, tags, params, dev_name, client_key=None):
         try:
-            try:
+            if not client.connected:
                 await client.connect()
-                if client.connected:
-                    # OPTIMIZATION: Group tags by type and contiguous addresses
-                    # This dramatically reduces the number of round-trips to the device
+            
+            if client.connected:
+                # 1. Group by register type
+                grouped_tags = {}
+                for tag in tags:
+                    if isinstance(tag, dict):
+                        if not tag.get('enabled', True) or tag.get('address') is None or tag.get('address') == '': 
+                            continue
+                        
+                        t_params = tag.get('params') or {}
+                        reg_type = t_params.get("register_type", "HOLDING")
+                        addr = int(tag['address'])
+                        dtype = tag.get('data_type') or "INT16"
+                        size = 2 if dtype in ['FLOAT32', 'INT32', 'UINT32'] else \
+                               4 if dtype in ['FLOAT64', 'INT64', 'UINT64'] else 1
+                        
+                        if reg_type not in grouped_tags: grouped_tags[reg_type] = []
+                        grouped_tags[reg_type].append({'tag': tag, 'addr': addr, 'size': size, 'end': addr + size})
                     
-                    # 1. Group by register type
-                    grouped_tags = {}
-                    for tag in tags:
-                        if isinstance(tag, dict):
-                            # Fix check for address (allow 0)
-                            # Tags in this list are already filtered by enabled=True in _loop, so default to True
-                            if not tag.get('enabled', True) or tag.get('address') is None or tag.get('address') == '': 
-                                continue
-                            
-                            t_params = tag.get('params') or {}
-                            reg_type = t_params.get("register_type", "HOLDING")
-                            addr = int(tag['address'])
-                            # Calculate size
-                            dtype = tag.get('data_type') or "INT16"
-                            size = 2 if dtype in ['FLOAT32', 'INT32', 'UINT32'] else \
-                                   4 if dtype in ['FLOAT64', 'INT64', 'UINT64'] else 1
-                            
-                            if reg_type not in grouped_tags: grouped_tags[reg_type] = []
-                            grouped_tags[reg_type].append({
-                                'tag': tag,
-                                'addr': addr,
-                                'size': size,
-                                'end': addr + size
-                            })
+                # 2. Process groups
+                for reg_type, tag_list in grouped_tags.items():
+                    tag_list.sort(key=lambda x: x['addr'])
+                    batches = []
+                    current_batch = []
+                    batch_start = -1
+                    batch_end = -1
+                    MAX_GAP = 10 
+                    MAX_COUNT = 100 
+
+                    for item in tag_list:
+                        addr, size = item['addr'], item['size']
+                        end = addr + size
+                        if not current_batch:
+                            current_batch, batch_start, batch_end = [item], addr, end
                         else:
-                            logging.warning(f"Skipping non-dict tag: {tag}")
-                        
-                    # 2. Process groups
-                    for reg_type, tag_list in grouped_tags.items():
-                        logging.debug(f"DEBUG: Processing {len(tag_list)} tags for type {reg_type}")
-                        # Sort by address
-                        tag_list.sort(key=lambda x: x['addr'])
-                        
-                        # BATCH READ IMPLEMENTATION
-                        batches = []
-                        current_batch = []
-                        batch_start = -1
-                        batch_end = -1
-                        
-                        MAX_GAP = 20
-                        MAX_COUNT = 120 # Safe limit for Modbus (max PDU ~253 bytes)
-
-                        for item in tag_list:
-                            addr = item['addr']
-                            size = item['size']
-                            end = addr + size
-                            
-                            if not current_batch:
-                                current_batch = [item]
-                                batch_start = addr
-                                batch_end = end
+                            new_end = max(batch_end, end)
+                            if (new_end - batch_start) <= MAX_COUNT and ((addr - batch_end) <= MAX_GAP or addr < batch_end):
+                                current_batch.append(item)
+                                batch_end = new_end
                             else:
-                                # Check if we can extend
-                                # Use max(batch_end, end) to handle overlapping/duplicate ranges
-                                new_end = max(batch_end, end)
-                                new_count = new_end - batch_start
-                                gap = addr - batch_end
-                                
-                                # Logic: 
-                                # 1. If overlaps (addr < batch_end), gap is negative. logic checks new_count limit.
-                                # 2. If contiguous (addr == batch_end), gap is 0.
-                                # 3. If gap (addr > batch_end), gap check applies.
-                                
-                                if new_count <= MAX_COUNT and (gap <= MAX_GAP or addr < batch_end):
-                                    current_batch.append(item)
-                                    batch_end = new_end
-                                else:
-                                    # Close previous batch
-                                    batches.append({
-                                        'start': batch_start,
-                                        'count': batch_end - batch_start,
-                                        'items': current_batch
-                                    })
-                                    # Start new
-                                    current_batch = [item]
-                                    batch_start = addr
-                                    batch_end = end
+                                batches.append({'start': batch_start, 'count': batch_end - batch_start, 'items': current_batch})
+                                current_batch, batch_start, batch_end = [item], addr, end
+                    
+                    if current_batch:
+                        batches.append({'start': batch_start, 'count': batch_end - batch_start, 'items': current_batch})
                         
-                        if current_batch:
-                            batches.append({
-                                'start': batch_start,
-                                'count': batch_end - batch_start,
-                                'items': current_batch
-                            })
-                            
-                        # Execute Batches
-                        for batch in batches:
-                             start = batch['start']
-                             count = batch['count']
-                             items = batch['items']
-                             
-                             try:
-                                slave_id = int(params.get("slave_id", 1))
-                                rr = None
-                                
-                                # Perform Read
-                                if reg_type == "HOLDING":
-                                    rr = await client.read_holding_registers(start, count=count, device_id=slave_id)
-                                elif reg_type == "INPUT":
-                                    rr = await client.read_input_registers(start, count=count, device_id=slave_id)
-                                elif reg_type == "COIL":
-                                    rr = await client.read_coils(start, count=count, device_id=slave_id)
-                                elif reg_type == "DISCRETE":
-                                    rr = await client.read_discrete_inputs(start, count=count, device_id=slave_id)
+                    slave_id = int(params.get("slave_id", 1))
+                    for batch in batches:
+                         start, count, items = batch['start'], batch['count'], batch['items']
+                         try:
+                            rr = None
+                            if reg_type == "HOLDING": rr = await client.read_holding_registers(start, count=count, device_id=slave_id)
+                            elif reg_type == "INPUT": rr = await client.read_input_registers(start, count=count, device_id=slave_id)
+                            elif reg_type == "COIL": rr = await client.read_coils(start, count=count, device_id=slave_id)
+                            elif reg_type == "DISCRETE": rr = await client.read_discrete_inputs(start, count=count, device_id=slave_id)
 
-                                if rr and not rr.isError():
-                                     # Distribute data
-                                     for item in items:
-                                         tag = item['tag']
-                                         t_addr = item['addr']
-                                         t_size = item['size']
-                                         
-                                         offset = t_addr - start
-                                         
-                                         val = None
-                                         if reg_type in ["COIL", "DISCRETE"]:
-                                             # rr.bits is list of bools
-                                             if offset < len(rr.bits):
-                                                 val = rr.bits[offset]
-                                         else:
-                                             # Registers
-                                             if offset + t_size <= len(rr.registers):
-                                                 regs = rr.registers[offset : offset + t_size]
-                                                 if t_size == 1:
-                                                     val = regs[0]
-                                                     t_dtype = tag.get('data_type')
-                                                     if t_dtype == 'INT16':
-                                                        val = val if val < 32768 else val - 65536
-                                                     elif t_dtype == 'BOOLEAN':
-                                                         val = bool(val)
-                                                 else:
-                                                     t_params = tag.get('params') or {}
-                                                     byte_order = t_params.get("byte_order", "ABCD")
-                                                     t_dtype = tag.get('data_type')
-                                                     val = convert_byte_order(regs, byte_order, t_dtype)
-                                         
-                                         
-                                         if val is not None:
-                                             await self.store.update_tag(tag['tag_id'], val)
-                                else:
-                                    # Log error once for batch
-                                    pass
-                             except Exception as e:
-                                 failed_tags = ", ".join([item['tag']['tag_id'] for item in items])
-                                 logging.error(f"Modbus Batch Read Failed | Device: '{dev_name}' | StartAddr: {start} | Count: {count} | Error: {str(e)} | Affected Tags: [{failed_tags}]")
-                    # Connection failed
-                    error_msg = f"Modbus Connection Error: Failed to connect to {params.get('host', 'device')}"
-                    logging.error(error_msg)
-                    for tag in tags:
-                         await self._handle_error(tag, error_msg)
-                    return False
-            finally:
-                client.close()
+                            if rr and not rr.isError():
+                                 for item in items:
+                                     tag, t_addr, t_size = item['tag'], item['addr'], item['size']
+                                     offset = t_addr - start
+                                     val = None
+                                     if reg_type in ["COIL", "DISCRETE"]:
+                                         if offset < len(rr.bits): val = rr.bits[offset]
+                                     else:
+                                         if offset + t_size <= len(rr.registers):
+                                             regs = rr.registers[offset : offset + t_size]
+                                             if t_size == 1:
+                                                 val = regs[0]
+                                                 t_dtype = tag.get('data_type')
+                                                 if t_dtype == 'INT16': val = val if val < 32768 else val - 65536
+                                                 elif t_dtype == 'BOOLEAN': val = bool(val)
+                                             else:
+                                                 val = convert_byte_order(regs, tag.get('params', {}).get("byte_order", "ABCD"), tag.get('data_type'))
+                                     if val is not None: await self.store.update_tag(tag['tag_id'], val)
+                            else:
+                                for item in items: await self._handle_error(item['tag'], f"Modbus Error: {rr}")
+                         except Exception as e:
+                             for item in items: await self._handle_error(item['tag'], str(e))
+                return True
+            else:
+                error_msg = f"Modbus Connection Error: Could not connect to {params.get('host', 'device')}"
+                for tag in tags: await self._handle_error(tag, error_msg)
+                if client_key: self._modbus_clients.pop(client_key, None)
+                return False
         except Exception as e:
-            error_msg = f"Modbus Connection Exception: {str(e)}"
-            logging.error(f"Error polling device {dev_name}: {error_msg}")
-            for tag in tags:
-                await self._handle_error(tag, error_msg)
+            logging.error(f"Error polling device {dev_name}: {e}")
+            for tag in tags: await self._handle_error(tag, str(e))
             return False
             
         return True
@@ -565,7 +541,7 @@ class PollingEngine:
                             except:
                                 pass
                             self._opcua_clients.pop(device_id, None)
-                            return False # Signal failure
+                            return False, error_msg # Signal failure
 
         except Exception as e:
             error_msg = f"OPC UA Connection Error: {str(e)}"
@@ -576,128 +552,131 @@ class PollingEngine:
             
             for tag in tags:
                 await self._handle_error(tag, error_msg)
-            return False
+            return False, error_msg
             
-        return True
+        return True, None
 
     async def _poll_snmp(self, device):
         """Poll SNMP device with support for v1, v2c, and v3"""
-        if isinstance(device, dict):
-            params = device['connection_params']
-            tags = device['tags']
-            dev_name = device['name']
-        else:
-            params = device.connection_params
-            tags = device.tags
-            dev_name = device.name
-
-        host = params.get("host")
-        port = params.get("port", 161)
-        version = params.get("version", "v2c")  # v1, v2c, or v3
-        
-        # Create authentication data based on SNMP version
-        auth_data = None
-        
-        if version in ["v1", "v2c"]:
-            # Community-based authentication
-            community = params.get("community", "public")
-            mp_model = 0 if version == "v1" else 1
-            auth_data = CommunityData(community, mpModel=mp_model)
-            
-        elif version == "v3":
-            # User-based security model
-            username = params.get("username")
-            if not username:
-                logging.error(f"SNMPv3 requires username for device {dev_name}")
-                return
-            
-            security_level = params.get("security_level", "noAuthNoPriv")
-            auth_protocol = None
-            auth_key = None
-            priv_protocol = None
-            priv_key = None
-            
-            # Authentication
-            if security_level in ["authNoPriv", "authPriv"]:
-                auth_proto = params.get("auth_protocol", "SHA")
-                auth_protocol = usmHMACSHAAuthProtocol if auth_proto == "SHA" else usmHMACMD5AuthProtocol
-                auth_key = params.get("auth_password")
-                
-                if not auth_key:
-                    logging.error(f"SNMPv3 {security_level} requires auth_password for device {dev_name}")
-                    return
-            
-            # Privacy (encryption)
-            if security_level == "authPriv":
-                priv_proto = params.get("priv_protocol", "AES")
-                priv_protocol = usmAesCfb128Protocol if priv_proto == "AES" else usmDESPrivProtocol
-                priv_key = params.get("priv_password")
-                
-                if not priv_key:
-                    logging.error(f"SNMPv3 authPriv requires priv_password for device {dev_name}")
-                    return
-            
-            auth_data = UsmUserData(
-                username,
-                authKey=auth_key,
-                privKey=priv_key,
-                authProtocol=auth_protocol,
-                privProtocol=priv_protocol
-            )
-        else:
-            logging.error(f"Unsupported SNMP version '{version}' for device {dev_name}")
-            return
-
-        # Poll each tag
-        for tag in tags:
-            if isinstance(tag, dict):
-                t_enabled = True
-                t_address = tag['address']
-                t_id = tag['tag_id']
+        try:
+            if isinstance(device, dict):
+                params = device['connection_params']
+                tags = device['tags']
+                dev_name = device['name']
             else:
-                t_enabled = tag.enabled
-                t_address = tag.address
-                t_id = tag.tag_id
+                params = device.connection_params
+                tags = device.tags
+                dev_name = device.name
 
-            if t_enabled and t_address:  # address is OID e.g. "1.3.6.1.2.1.1.1.0"
-                try:
-                    errorIndication, errorStatus, errorIndex, varBinds = await getCmd(
-                        SnmpEngine(),
-                        auth_data,
-                        UdpTransportTarget((host, port), timeout=params.get("timeout", 5), retries=params.get("retries", 3)),
-                        ContextData(),
-                        ObjectType(ObjectIdentity(t_address))
-                    )
-
-                    if errorIndication:
-                        error_msg = f"SNMP Network Error: {errorIndication}"
-                        logging.error(error_msg)
-                        await self._handle_error(tag, error_msg)
-                    elif errorStatus:
-                        error_msg = f"SNMP Protocol Error: {errorStatus.prettyPrint()} at {errorIndex and varBinds[int(errorIndex) - 1][0] or '?'}"
-                        logging.error(error_msg)
-                        await self._handle_error(tag, error_msg)
-                    else:
-                        for varBind in varBinds:
-                            # varBind is (OID, Value)
-                            val = varBind[1]
-                            val_str = val.prettyPrint()
-                            
-                            # Check for SNMP exception values
-                            if "No Such Instance" in val_str or "No Such Object" in val_str:
-                                error_msg = f"SNMP Error: {val_str}"
-                                await self._handle_error(tag, error_msg)
-                            else:
-                                # Convert SNMP types to python types if needed
-                                await self.store.update_tag(t_id, str(val))
-                except Exception as e:
-                    error_msg = f"SNMP Exception: {str(e)}"
-                    logging.error(f"Error reading SNMP tag {t_id}: {error_msg}")
-                    await self._handle_error(tag, error_msg)
-                    # For SNMP, single tag errors are common (OID missing), so we don't necessarily return False for device
-                    # unless it's a timeout which is usually handled by getCmd raising or returning error
+            host = params.get("host")
+            port = params.get("port", 161)
+            version = params.get("version", "v2c")  # v1, v2c, or v3
+            
+            # Create authentication data based on SNMP version
+            auth_data = None
+            
+            if version in ["v1", "v2c"]:
+                # Community-based authentication
+                community = params.get("community", "public")
+                mp_model = 0 if version == "v1" else 1
+                auth_data = CommunityData(community, mpModel=mp_model)
+                
+                
+            elif version == "v3":
+                # User-based security model
+                username = params.get("username")
+                if not username:
+                    logging.error(f"SNMPv3 requires username for device {dev_name}")
+                    return False, "SNMPv3 requires username"
+                
+                security_level = params.get("security_level", "noAuthNoPriv")
+                auth_protocol = None
+                auth_key = None
+                priv_protocol = None
+                priv_key = None
+                
+                # Authentication
+                if security_level in ["authNoPriv", "authPriv"]:
+                    auth_proto = params.get("auth_protocol", "SHA")
+                    auth_protocol = usmHMACSHAAuthProtocol if auth_proto == "SHA" else usmHMACMD5AuthProtocol
+                    auth_key = params.get("auth_password")
                     
-        return True
+                    if not auth_key:
+                        logging.error(f"SNMPv3 {security_level} requires auth_password for device {dev_name}")
+                        return False, "SNMPv3 requires auth_password"
+                
+                # Privacy (encryption)
+                if security_level == "authPriv":
+                    priv_proto = params.get("priv_protocol", "AES")
+                    priv_protocol = usmAesCfb128Protocol if priv_proto == "AES" else usmDESPrivProtocol
+                    priv_key = params.get("priv_password")
+                    
+                    if not priv_key:
+                        logging.error(f"SNMPv3 authPriv requires priv_password for device {dev_name}")
+                        return False, "SNMPv3 requires priv_password"
+                
+                auth_data = UsmUserData(
+                    username,
+                    authKey=auth_key,
+                    privKey=priv_key,
+                    authProtocol=auth_protocol,
+                    privProtocol=priv_protocol
+                )
+            else:
+                error_msg = f"Unsupported SNMP version '{version}' for device {dev_name}"
+                logging.error(error_msg)
+                return False, error_msg
+
+            # Poll each tag
+            for tag in tags:
+                if isinstance(tag, dict):
+                    t_enabled = True
+                    t_address = tag['address']
+                    t_id = tag['tag_id']
+                else:
+                    t_enabled = tag.enabled
+                    t_address = tag.address
+                    t_id = tag.tag_id
+
+                if t_enabled and t_address:  # address is OID e.g. "1.3.6.1.2.1.1.1.0"
+                    try:
+                        errorIndication, errorStatus, errorIndex, varBinds = await getCmd(
+                            SnmpEngine(),
+                            auth_data,
+                            UdpTransportTarget((host, port), timeout=params.get("timeout", 5), retries=params.get("retries", 3)),
+                            ContextData(),
+                            ObjectType(ObjectIdentity(t_address))
+                        )
+
+                        if errorIndication:
+                            error_msg = f"SNMP Network Error: {errorIndication}"
+                            logging.error(error_msg)
+                            await self._handle_error(tag, error_msg)
+                        elif errorStatus:
+                            error_msg = f"SNMP Protocol Error: {errorStatus.prettyPrint()} at {errorIndex and varBinds[int(errorIndex) - 1][0] or '?'}"
+                            logging.error(error_msg)
+                            await self._handle_error(tag, error_msg)
+                        else:
+                            for varBind in varBinds:
+                                # varBind is (OID, Value)
+                                val = varBind[1]
+                                val_str = val.prettyPrint()
+                                
+                                # Check for SNMP exception values
+                                if "No Such Instance" in val_str or "No Such Object" in val_str:
+                                    error_msg = f"SNMP Error: {val_str}"
+                                    await self._handle_error(tag, error_msg)
+                                else:
+                                    # Convert SNMP types to python types if needed
+                                    await self.store.update_tag(t_id, str(val))
+                    except Exception as e:
+                        error_msg = f"SNMP Exception: {str(e)}"
+                        logging.error(f"Error reading SNMP tag {t_id}: {error_msg}")
+                        await self._handle_error(tag, error_msg)
+                
+            return True, None
+        except Exception as e:
+            return False, str(e)
 
     async def _poll_iec104(self, device):
         # IEC104 is usually event-driven, but here we implement a simple poll (interrogation)
@@ -759,7 +738,8 @@ class PollingEngine:
             # Client cleanup is handled by garbage collection/destructor in python bindings usually
             
         except Exception as e:
-            logging.error(f"Error polling IEC104 device {dev_name}: {e}")
-            return False
+            error_msg = f"Error polling IEC104 device {dev_name}: {e}"
+            logging.error(error_msg)
+            return False, error_msg
             
-        return True
+        return True, None

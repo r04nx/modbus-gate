@@ -26,3 +26,6 @@ api_router.include_router(buffering.router, prefix="/buffering", tags=["bufferin
 
 from app.api.endpoints import operations
 api_router.include_router(operations.router, prefix="/operations", tags=["operations"])
+
+from app.api.endpoints import datastore
+api_router.include_router(datastore.router, prefix="/datastore", tags=["datastore"])

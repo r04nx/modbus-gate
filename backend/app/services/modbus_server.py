@@ -222,8 +222,7 @@ class ModbusServerService:
                     self.store.setValues(2, addr, bool_val)
                     
             except Exception as e:
-                # logging.error(f"Error syncing tag {tag_id}: {e}")
-                pass
+                logging.error(f"Error syncing Modbus Server tag mapping '{tag_id}' at address {addr} (register type: {reg_type}): {str(e)}. Please assure it is within bounds.")
 
     def _convert_to_registers(self, value, data_type):
         import struct

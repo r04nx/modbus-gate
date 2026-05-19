@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Server, Tag, Settings, Activity, FileText, Network, Terminal, Download, Database, LogOut, ChevronLeft, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, Server, Tag, Settings, Activity, FileText, Network, Terminal, Download, Database, LogOut, ChevronLeft, ChevronRight, HardDrive } from 'lucide-react';
 import clsx from 'clsx';
 import api from '../services/api';
 
@@ -60,6 +60,7 @@ const Layout = ({ children }) => {
         navItems.push({ path: '/terminal', label: 'Terminal', icon: Terminal });
     }
 
+    navItems.push({ path: '/datastore', label: 'DataStore', icon: HardDrive });
     navItems.push({ path: '/database', label: 'Database', icon: Database });
     navItems.push({ path: '/settings', label: 'Settings', icon: Settings });
 

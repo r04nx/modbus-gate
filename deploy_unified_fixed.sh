@@ -28,15 +28,9 @@ cp -r "$PROJECT_ROOT/frontend/dist"/* "$PROJECT_ROOT/backend/static/"
 echo "📤 Deploying to $REMOTE_HOST (via TAR stream)..."
 cd "$PROJECT_ROOT"
 
-# Check connection before starting
-if ! ping -c 1 -W 2 "$REMOTE_HOST" > /dev/null; then
-    echo "❌ Error: Remote host $REMOTE_HOST is unreachable."
-    exit 1
-fi
-
 # Use tar to stream files to remote host. 
-# Added -v to show progress and prevent 'freezing' perception.
-tar czvf - \
+# This pipelines compression -> ssh -> decompression, avoiding temporary files on the remote.
+tar czf - \
     --exclude='.git' \
     --exclude='__pycache__' \
     --exclude='.venv' \
@@ -46,8 +40,7 @@ tar czvf - \
     --exclude='deploy_pkg' \
     --exclude='Papers' \
     --exclude='*.db' \
-    --exclude='*.log' \
-    ./backend/ | sshpass -e ssh -o StrictHostKeyChecking=no "$REMOTE_USER@$REMOTE_HOST" "tar xzvf - -C $REMOTE_PATH"
+    ./backend/ | sshpass -e ssh -o StrictHostKeyChecking=no "$REMOTE_USER@$REMOTE_HOST" "tar xzf - -C $REMOTE_PATH"
 
 # 4. Restart Service
 echo "🔄 Restarting Service..."

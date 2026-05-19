@@ -82,6 +82,8 @@ export const updateDevice = (id, device) => api.patch(`/devices/${id}`, device);
 export const deleteDevice = (id) => api.delete(`/devices/${id}`);
 export const testDeviceConnection = (id) => api.post(`/devices/${id}/test`);
 export const exportDevices = () => api.get('/devices/export', { responseType: 'blob' });
+export const getDevicesHealth = () => api.get('/devices/health');
+export const diagnoseDevice = (id, tool, options = []) => api.post(`/devices/${id}/diagnose/${tool}`, { options });
 export const importDevices = (file, replace = false, dryRun = false) => {
     const formData = new FormData();
     formData.append('file', file);
@@ -118,9 +120,10 @@ export const clearLogs = () => api.delete('/logs/');
 // Tag Write
 export const writeTag = (id, value) => api.post(`/tags/${id}/write`, { value });
 
-// Server Config
 export const getServerConfig = (type) => api.get(`/servers/${type}`);
 export const updateServerConfig = (type, config) => api.put(`/servers/${type}`, config);
+export const getMqttBrokerStatus = () => api.get('/servers/MQTT_PUBLISHER/broker-status');
+
 
 // Certificate Management
 export const uploadCertificate = (formData) => api.post('/servers/certificates', formData, {
@@ -176,6 +179,15 @@ export const resetPassword = (id, newPassword) => api.post(`/users/${id}/reset-p
 // Session Management
 export const getActiveSessions = () => api.get('/users/sessions/active');
 export const terminateSession = (sessionId) => api.delete(`/users/sessions/${sessionId}`);
+
+// DataStore
+export const getDataStoreConfig = () => api.get('/datastore/config');
+export const updateDataStoreConfig = (config) => api.put('/datastore/config', config);
+export const getDataStoreTags = () => api.get('/datastore/tags');
+export const getDataStoreRecords = (params) => api.get('/datastore/records', { params });
+export const getDataStoreStats = () => api.get('/datastore/stats');
+export const exportDataStore = (params) => api.get('/datastore/export', { params, responseType: 'blob' });
+export const deleteDataStoreRecords = (params) => api.delete('/datastore/records', { params });
 
 export default api;
 

@@ -1,13 +1,24 @@
-
+﻿
 import React, { useState, useEffect, useMemo } from 'react';
-import { Save, Server, Activity, Settings, RefreshCw, CheckCircle, XCircle, Plus, Trash2, Search, AlertTriangle, Edit2, ChevronRight, ChevronDown, Database, Network, Wifi, Gauge, Tag, Calculator, BarChart3, User, Wand2, Copy, Upload } from 'lucide-react';
+import { Save, Server, Activity, Settings, RefreshCw, CheckCircle, XCircle, Plus, Trash2, Search, AlertTriangle, Edit2, ChevronRight, ChevronDown, Database, Network, Wifi, Gauge, Tag, Calculator, BarChart3, User, Wand2, Copy, Upload, Info, Loader2, Shield, ShieldOff, ShieldCheck } from 'lucide-react'; import { FolderPlus, FolderTree, ArrowRight, Move } from 'lucide-react';
 import clsx from 'clsx';
-import api, { getTags, listCertificates, getDevices } from '../services/api';
+import api, { getTags, listCertificates, getDevices, getMqttBrokerStatus } from '../services/api';
 import { TableSkeleton, FormSkeleton, Skeleton } from '../components/common/Skeleton';
 import TagMappingSelector from '../components/TagMappingSelector';
 import JsonEditor from '../components/JsonEditor';
 import CertificateUpload from '../components/CertificateUpload';
 import TagImportAnalysisModal from '../components/TagImportAnalysisModal';
+import { useToast } from '../contexts/ToastContext';
+
+// Tooltip helper component
+const InfoHover = ({ text }) => (
+    <div className="group relative ml-2 inline-flex items-center text-text-muted hover:text-white cursor-help">
+        <Info size={14} />
+        <div className="pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-2 bg-gray-900 border border-surfaceHighlight/50 text-xs text-gray-300 rounded shadow-lg z-50 text-center">
+            {text}
+        </div>
+    </div>
+);
 
 // Helper to determine data size in registers
 const getDataSize = (dataType) => {
@@ -38,6 +49,7 @@ export default function Servers() {
         config: { mappings: [], brokers: [], publications: [] }
     });
     const [initialConfig, setInitialConfig] = useState(null);
+    const showToast = useToast();
 
     // Tag Selector State
     const [showTagSelector, setShowTagSelector] = useState(false);
@@ -57,10 +69,14 @@ export default function Servers() {
     const [certificates, setCertificates] = useState([]);
     const [showCertUpload, setShowCertUpload] = useState(false);
 
+    // MQTT Broker live status
+    const [brokerStatus, setBrokerStatus] = useState({});
+
     // Import Analysis State
     const [importAnalysis, setImportAnalysis] = useState(null);
-    const [importFile, setImportFile] = useState(null); // Not strictly needed if we process in memo, but good for flow
-    const [pendingImportData, setPendingImportData] = useState(null); // Store parsed data waiting for confirmation
+    const [importFile, setImportFile] = useState(null);
+    const [pendingImportData, setPendingImportData] = useState(null);
+    const [showTreeEditor, setShowTreeEditor] = useState(false);
 
     const toggleItem = (id) => {
         setExpandedItems(prev => ({ ...prev, [id]: !prev[id] }));
@@ -118,17 +134,31 @@ export default function Servers() {
         }
     };
 
+    // Poll MQTT broker status every 5 s when on that tab
+    useEffect(() => {
+        if (activeTab !== 'MQTT_PUBLISHER') return;
+        const poll = async () => {
+            try {
+                const res = await getMqttBrokerStatus();
+                setBrokerStatus(res.data || {});
+            } catch (e) { /* silently ignore */ }
+        };
+        poll();
+        const timer = setInterval(poll, 5000);
+        return () => clearInterval(timer);
+    }, [activeTab]);
+
     useEffect(() => {
         // Reset config to avoid showing stale data while loading
         setConfig({
             enabled: false,
             config: { mappings: [], brokers: [], publications: [] }
         });
-        setInitialConfig(null); // Reset initial config
-        setCurrentPage(1); // Reset pagination
+        setInitialConfig(null);
+        setCurrentPage(1);
         fetchConfig(activeTab);
         loadTags();
-        loadCertificates(); // Load certificates for MQTT TLS
+        loadCertificates();
     }, [activeTab]);
 
     const loadTags = async () => {
@@ -173,15 +203,38 @@ export default function Servers() {
     };
 
     const handleSave = async () => {
+        // Validation Checks
+        if (activeTab !== 'MQTT_PUBLISHER' && config.config.port !== undefined && config.config.port !== '') {
+            const port = parseInt(config.config.port);
+            if (isNaN(port) || port <= 0 || port > 65535) {
+                showToast("Invalid Port number: It must be between 1 and 65535. Please check the network limits.", 'error');
+                return;
+            }
+        }
+
+        if (activeTab === 'MQTT_PUBLISHER') {
+            for (const broker of config.config.brokers) {
+                if (!broker.host || broker.host.trim() === '') {
+                    showToast("Broker Host configuration cannot be empty. Please specify an IP address or hostname.", 'error');
+                    return;
+                }
+                const port = parseInt(broker.port);
+                if (isNaN(port) || port <= 0 || port > 65535) {
+                    showToast(`Broker Port invalid for ${broker.host}. Must be between 1 and 65535.`, 'error');
+                    return;
+                }
+            }
+        }
+
         setSaving(true);
         try {
             await api.put(`/servers/${activeTab}`, config);
             setInitialConfig(JSON.parse(JSON.stringify(config))); // Update initial config to match saved
-            alert('Configuration saved successfully!');
+            showToast('Configuration settings have been successfully stored and applied to the server.', 'success');
             setExpandedItems({}); // Collapse all items after save
             // setExpandedSections({}); // Removed section auto-collapse as per user request
         } catch (error) {
-            alert('Error saving configuration: ' + error.message);
+            showToast('Error saving configuration: ' + (error.response?.data?.detail || error.message), 'error');
         } finally {
             setSaving(false);
         }
@@ -253,7 +306,7 @@ export default function Servers() {
 
                     mapping = { ...mapping, register_type: regType, address, unit_id: 1 };
                 } else if (activeTab === 'OPC_UA_SERVER') {
-                    mapping = { ...mapping, node_name: tag.name || tag.tag_id };
+                    mapping = { ...mapping, node_name: tag.name || tag.tag_id, group_name: "Tags" };
                 } else if (activeTab === 'IEC104_SERVER') {
                     const tagParams = tag.params || {};
 
@@ -565,9 +618,9 @@ export default function Servers() {
                 csvContent += `${m.tag_id},${m.slave_id || 1},${m.register_type},${m.address},${m.data_type}\n`;
             });
         } else if (activeTab === 'OPC_UA_SERVER') {
-            csvContent += "tag_id,node_name,data_type\n";
+            csvContent += "tag_id,node_name,group_name,data_type\n";
             (config.config.mappings || []).forEach(m => {
-                csvContent += `${m.tag_id},${m.node_name},${m.data_type}\n`;
+                csvContent += `${m.tag_id},${m.node_name},${m.group_name || 'Tags'},${m.data_type}\n`;
             });
         } else if (activeTab === 'IEC104_SERVER') {
             csvContent += "tag_id,base_value,ioa,type_id,soe,cot\n";
@@ -742,7 +795,8 @@ export default function Servers() {
                 } else if (activeTab === 'OPC_UA_SERVER') {
                     const tagId = getVal(row, 'tag_id') || row[0];
                     const nodeName = getVal(row, 'node_name') || row[1];
-                    const dataType = getVal(row, 'data_type') || row[2];
+                    const groupName = getVal(row, 'group_name') || row[2];
+                    const dataType = getVal(row, 'data_type') || row[3];
 
                     if (!tagId) { validationError = "Missing Tag ID"; }
                     else if (!nodeName) { validationError = "Missing Node Name"; }
@@ -750,6 +804,7 @@ export default function Servers() {
                         candidate = {
                             tag_id: tagId,
                             node_name: nodeName,
+                            group_name: groupName || "Tags",
                             data_type: dataType || 'INT16'
                         };
 
@@ -825,21 +880,21 @@ export default function Servers() {
             }
 
             if (errors.length > 0) {
-                // Show Verbose Errors
-                alert(`Import Failed!\nFound ${errors.length} issues:\n\n${errors.slice(0, 10).join('\n')}${errors.length > 10 ? '\n...and ' + (errors.length - 10) + ' more' : ''}`);
+                // Show Verbose Errors natively via modal or toast - here we use a detailed error toast
+                showToast(`Import Failed! Found ${errors.length} issues. Check syntax: ${errors.slice(0, 3).join(' | ')}${errors.length > 3 ? '... and more' : ''}`, 'error');
             } else {
                 if (newMappings.length > 0) {
                     // If replace mode, we use only newMappings (we already ignored existing in conflict check)
                     // If not replace mode, we append (and duplicates were skipped/alerted already)
                     const finalMappings = replaceMode ? newMappings : [...(config.config.mappings || []), ...newMappings];
                     handleConfigChange('mappings', finalMappings);
-                    alert(`Import Successful!\n${replaceMode ? 'Replaced list with' : 'Added'} ${newMappings.length} mappings.`);
+                    showToast(`Import Successful! ${replaceMode ? 'Replaced current definitions with' : 'Added'} ${newMappings.length} mappings.`, 'success');
                 } else if (newPublications.length > 0) {
                     const finalPubs = replaceMode ? newPublications : [...(config.config.publications || []), ...newPublications];
                     handleConfigChange('publications', finalPubs);
-                    alert(`Import Successful!\n${replaceMode ? 'Replaced list with' : 'Added'} ${newPublications.length} publications.`);
+                    showToast(`Import Successful! ${replaceMode ? 'Replaced definitions with' : 'Added'} ${newPublications.length} MQTT publications.`, 'success');
                 } else {
-                    alert('No new unique mappings found to import.');
+                    showToast('No new distinct mappings were identified in the uploaded CSV.', 'info');
                 }
             }
         };
@@ -866,7 +921,10 @@ export default function Servers() {
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                 <div className="group">
-                    <label className="block text-sm font-medium text-text-secondary mb-2">Port</label>
+                    <label className="flex items-center text-sm font-medium text-text-secondary mb-2">
+                        Port
+                        <InfoHover text="The physical or virtual TCP port where the local Modbus TCP server will listen for incoming requests. (Default: 5020)" />
+                    </label>
                     <input
                         type="number"
                         value={config.config.port || 5020}
@@ -875,7 +933,10 @@ export default function Servers() {
                     />
                 </div>
                 <div className="group">
-                    <label className="block text-sm font-medium text-text-secondary mb-2">Default Slave ID</label>
+                    <label className="flex items-center text-sm font-medium text-text-secondary mb-2">
+                        Default Slave ID
+                        <InfoHover text="The fallback Unit ID/Slave ID used for registers if a tag mapping does not explicitly define one." />
+                    </label>
                     <input
                         type="number"
                         value={config.config.slave_id || 1}
@@ -892,8 +953,9 @@ export default function Servers() {
                             onChange={(e) => handleConfigChange('reset_on_change', e.target.checked)}
                         />
                         <div className="w-11 h-6 bg-surfaceHighlight/30 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary shadow-inner"></div>
-                        <span className="ml-3 text-sm font-medium text-text-secondary group-hover:text-white transition-colors">
+                        <span className="ml-3 text-sm font-medium text-text-secondary group-hover:text-white transition-colors flex items-center">
                             Reset Memory on Change
+                            <InfoHover text="When enabled, any configuration change immediately drops the active Modbus context and resets all held values to zero." />
                         </span>
                     </label>
                 </div>
@@ -916,6 +978,12 @@ export default function Servers() {
                         )}
                     </div>
                     <div className="flex gap-2">
+                                                <button
+                            onClick={() => setShowTreeEditor(true)}
+                            className="flex items-center gap-2 px-4 py-2 bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30 rounded-lg transition-colors"
+                        >
+                            <FolderTree size={16} /> Interactive Tree Editor
+                        </button>
                         <button onClick={exportToCSV} className="flex items-center gap-2 px-3 py-2 bg-surfaceHighlight/30 hover:bg-surfaceHighlight/50 text-white rounded-lg transition-colors text-sm">
                             <Copy size={14} /> Export CSV
                         </button>
@@ -950,7 +1018,7 @@ export default function Servers() {
                         <div className="max-h-32 overflow-y-auto text-xs text-warning/80 space-y-1 pl-6">
                             {validationErrors.map((err, i) => (
                                 <div key={i} className="flex items-center gap-1">
-                                    <span>•</span>
+                                    <span>â€¢</span>
                                     {err.type === 'OVERLAP' ? (
                                         <span>
                                             Address Conflict: <TagBadge tagId={err.tag1} /> overlaps with <TagBadge tagId={err.tag2} /> at {err.location}
@@ -1121,7 +1189,10 @@ export default function Servers() {
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="group">
-                    <label className="block text-sm font-medium text-text-secondary mb-2">Port</label>
+                    <label className="flex items-center text-sm font-medium text-text-secondary mb-2">
+                        Port
+                        <InfoHover text="The physical TCP port where the OPC UA endpoint binds. (Default: 4840)" />
+                    </label>
                     <input
                         type="number"
                         value={config.config.port || 4840}
@@ -1130,7 +1201,10 @@ export default function Servers() {
                     />
                 </div>
                 <div className="group">
-                    <label className="block text-sm font-medium text-text-secondary mb-2">Endpoint URL</label>
+                    <label className="flex items-center text-sm font-medium text-text-secondary mb-2">
+                        Endpoint URL
+                        <InfoHover text="The OPC.TCP uniform resource locator exposed for external clients to connect to." />
+                    </label>
                     <input
                         value={config.config.endpoint || `opc.tcp://0.0.0.0:${config.config.port || 4840}/freeopcua/server/`}
                         onChange={(e) => handleConfigChange('endpoint', e.target.value)}
@@ -1155,6 +1229,12 @@ export default function Servers() {
                         )}
                     </div>
                     <div className="flex gap-2">
+                                                <button
+                            onClick={() => setShowTreeEditor(true)}
+                            className="flex items-center gap-2 px-4 py-2 bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30 rounded-lg transition-colors"
+                        >
+                            <FolderTree size={16} /> Interactive Tree Editor
+                        </button>
                         <button onClick={exportToCSV} className="flex items-center gap-2 px-3 py-2 bg-surfaceHighlight/30 hover:bg-surfaceHighlight/50 text-white rounded-lg transition-colors text-sm">
                             <Copy size={14} /> Export CSV
                         </button>
@@ -1185,6 +1265,7 @@ export default function Servers() {
                                 </th>
                                 <th className="px-6 py-3">Tag ID</th>
                                 <th className="px-6 py-3">Node Name</th>
+                                <th className="px-6 py-3">Group Path</th>
                                 <th className="px-6 py-3">Node ID</th>
                                 <th className="px-6 py-3">Data Type</th>
                                 <th className="px-6 py-3">Actions</th>
@@ -1227,6 +1308,13 @@ export default function Servers() {
                                             <input
                                                 value={mapping.node_name}
                                                 onChange={(e) => updateMapping(idx, 'node_name', e.target.value)}
+                                                className="w-full bg-transparent border border-surfaceHighlight/30 rounded px-2 py-1 text-text-secondary focus:text-white focus:border-primary outline-none"
+                                            />
+                                        </td>
+                                        <td className="px-6 py-3">
+                                            <input
+                                                value={mapping.group_name || 'Tags'}
+                                                onChange={(e) => updateMapping(idx, 'group_name', e.target.value)}
                                                 className="w-full bg-transparent border border-surfaceHighlight/30 rounded px-2 py-1 text-text-secondary focus:text-white focus:border-primary outline-none"
                                             />
                                         </td>
@@ -1291,7 +1379,10 @@ export default function Servers() {
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="group">
-                    <label className="block text-sm font-medium text-text-secondary mb-2">Port</label>
+                    <label className="flex items-center text-sm font-medium text-text-secondary mb-2">
+                        Port
+                        <InfoHover text="The physical TCP port where the IEC 104 slave process listens. (Default: 2404)" />
+                    </label>
                     <input
                         type="number"
                         value={config.config.port || 2404}
@@ -1300,7 +1391,10 @@ export default function Servers() {
                     />
                 </div>
                 <div className="group">
-                    <label className="block text-sm font-medium text-text-secondary mb-2">Common Address (ASDU)</label>
+                    <label className="flex items-center text-sm font-medium text-text-secondary mb-2">
+                        Common Address (ASDU)
+                        <InfoHover text="The unique Common Address of ASDU identifying this station in the IEC 104 network." />
+                    </label>
                     <input
                         type="number"
                         value={config.config.common_address || 1}
@@ -1326,6 +1420,12 @@ export default function Servers() {
                         )}
                     </div>
                     <div className="flex gap-2">
+                                                <button
+                            onClick={() => setShowTreeEditor(true)}
+                            className="flex items-center gap-2 px-4 py-2 bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30 rounded-lg transition-colors"
+                        >
+                            <FolderTree size={16} /> Interactive Tree Editor
+                        </button>
                         <button onClick={exportToCSV} className="flex items-center gap-2 px-3 py-2 bg-surfaceHighlight/30 hover:bg-surfaceHighlight/50 text-white rounded-lg transition-colors text-sm">
                             <Copy size={14} /> Export CSV
                         </button>
@@ -1510,6 +1610,25 @@ export default function Servers() {
         </div>
     );
 
+    // Broker status badge helper
+    const BrokerStatusBadge = ({ brokerId }) => {
+        const st = brokerStatus[brokerId];
+        if (!st) return <span className="text-xs text-text-muted italic">Unknown</span>;
+        const map = {
+            connected:    { cls: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/30', icon: <ShieldCheck size={12}/>, label: 'Connected' },
+            reconnecting: { cls: 'text-yellow-400 bg-yellow-400/10 border-yellow-400/30', icon: <Loader2 size={12} className="animate-spin"/>, label: 'Reconnecting' },
+            error:        { cls: 'text-red-400 bg-red-400/10 border-red-400/30', icon: <ShieldOff size={12}/>, label: 'Error' },
+            disconnected: { cls: 'text-text-muted bg-surfaceHighlight/10 border-surfaceHighlight/30', icon: <Shield size={12}/>, label: 'Disconnected' },
+        };
+        const { cls, icon, label } = map[st.state] || map.disconnected;
+        return (
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-medium ${cls}`}>
+                {icon} {label}
+                {st.error && <span className="ml-1 opacity-60" title={st.error}>(!)</span>}
+            </span>
+        );
+    };
+
     const renderMqttContent = () => {
         const addBroker = () => {
             const newBrokers = [...config.config.brokers, { id: Date.now().toString(), host: 'localhost', port: 1883 }];
@@ -1564,21 +1683,32 @@ export default function Servers() {
                     </div>
                     <div className="p-6 space-y-4">
                         {(config.config.brokers || []).map((broker, idx) => (
+
                             <div key={broker.id} className="p-4 bg-surfaceHighlight/5 rounded-xl border border-surfaceHighlight/20 space-y-4">
                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                                     <div>
-                                        <label className="text-xs text-text-muted block mb-1">Host</label>
+                                        <label className="text-xs text-text-muted mb-1 flex items-center">
+                                            Host
+                                            <InfoHover text="The IP address or domain of the target MQTT broker." />
+                                        </label>
                                         <input value={broker.host} onChange={(e) => updateBroker(idx, 'host', e.target.value)} className="w-full bg-bg-card border border-surfaceHighlight/30 rounded px-3 py-2 text-sm text-white" />
                                     </div>
                                     <div>
-                                        <label className="text-xs text-text-muted block mb-1">Port</label>
+                                        <label className="text-xs text-text-muted mb-1 flex items-center">
+                                            Port
+                                            <InfoHover text="The broker's network port (Default: 1883 for unencrypted, 8883 for TLS)." />
+                                        </label>
                                         <input type="number" value={broker.port} onChange={(e) => updateBroker(idx, 'port', parseInt(e.target.value))} className="w-full bg-bg-card border border-surfaceHighlight/30 rounded px-3 py-2 text-sm text-white" />
                                     </div>
                                     <div>
-                                        <label className="text-xs text-text-muted block mb-1">Client ID</label>
+                                        <label className="text-xs text-text-muted mb-1 flex items-center">
+                                            Client ID
+                                            <InfoHover text="A unique identifier for this gateway connecting to the broker." />
+                                        </label>
                                         <input value={broker.client_id} onChange={(e) => updateBroker(idx, 'client_id', e.target.value)} className="w-full bg-bg-card border border-surfaceHighlight/30 rounded px-3 py-2 text-sm text-white" />
                                     </div>
-                                    <div className="flex items-end justify-end">
+                                    <div className="flex items-end justify-between">
+                                        <BrokerStatusBadge brokerId={broker.id} />
                                         <button onClick={() => removeBroker(idx)} className="p-2 text-text-muted hover:text-warning transition-colors"><Trash2 size={18} /></button>
                                     </div>
                                 </div>
@@ -1629,7 +1759,7 @@ export default function Servers() {
                                                     onChange={(e) => updateBroker(idx, 'certificate_id', e.target.value ? parseInt(e.target.value) : null)}
                                                     className="w-full bg-bg-card border border-surfaceHighlight/30 rounded px-3 py-2 text-sm text-white"
                                                 >
-                                                    <option value="">No certificate (server validation only)</option>
+                                                    <option value="">No certificate (anonymous TLS â€” hostname check disabled)</option>
                                                     {certificates.map(cert => (
                                                         <option key={cert.id} value={cert.id}>
                                                             {cert.name} {cert.description ? `- ${cert.description}` : ''}
@@ -1658,6 +1788,48 @@ export default function Servers() {
                                         </div>
                                     )}
                                 </div>
+
+                                {/* Last Will & Testament */}
+                                <div className="border-t border-surfaceHighlight/20 pt-4">
+                                    <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3 flex items-center gap-2">
+                                        <ShieldOff size={13} className="text-yellow-400" /> Last Will &amp; Testament (LWT)
+                                        <InfoHover text="Message the broker publishes on behalf of this gateway if it disconnects unexpectedly." />
+                                    </p>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="text-xs text-text-muted block mb-1">LWT Topic</label>
+                                            <input value={broker.lwt_topic || ''}
+                                                onChange={(e) => updateBroker(idx, 'lwt_topic', e.target.value)}
+                                                placeholder="e.g. vistaiot/gateway/status"
+                                                className="w-full bg-bg-card border border-surfaceHighlight/30 rounded px-3 py-2 text-sm text-white" />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs text-text-muted block mb-1">LWT Payload</label>
+                                            <input value={broker.lwt_payload || ''}
+                                                onChange={(e) => updateBroker(idx, 'lwt_payload', e.target.value)}
+                                                placeholder='{"status":"offline"}'
+                                                className="w-full bg-bg-card border border-surfaceHighlight/30 rounded px-3 py-2 text-sm text-white" />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs text-text-muted block mb-1">LWT QoS</label>
+                                            <select value={broker.lwt_qos ?? 1}
+                                                onChange={(e) => updateBroker(idx, 'lwt_qos', parseInt(e.target.value))}
+                                                className="w-full bg-bg-card border border-surfaceHighlight/30 rounded px-3 py-2 text-sm text-white">
+                                                <option value={0}>QoS 0 â€” At most once</option>
+                                                <option value={1}>QoS 1 â€” At least once</option>
+                                                <option value={2}>QoS 2 â€” Exactly once</option>
+                                            </select>
+                                        </div>
+                                        <div className="flex items-center gap-3 pt-5">
+                                            <input type="checkbox" id={`lwt-retain-${broker.id}`}
+                                                checked={broker.lwt_retain ?? true}
+                                                onChange={(e) => updateBroker(idx, 'lwt_retain', e.target.checked)}
+                                                className="w-4 h-4 rounded border-surfaceHighlight/50 bg-surfaceHighlight/20 text-primary focus:ring-primary focus:ring-offset-0"
+                                            />
+                                            <label htmlFor={`lwt-retain-${broker.id}`} className="text-xs text-text-muted cursor-pointer">Retain LWT message</label>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         ))}
                     </div>
@@ -1680,7 +1852,13 @@ export default function Servers() {
                             )}
                         </div>
                         <div className="flex gap-2">
-                            <button onClick={exportToCSV} className="flex items-center gap-2 px-3 py-2 bg-surfaceHighlight/30 hover:bg-surfaceHighlight/50 text-white rounded-lg transition-colors text-sm">
+                                                    <button
+                            onClick={() => setShowTreeEditor(true)}
+                            className="flex items-center gap-2 px-4 py-2 bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30 rounded-lg transition-colors"
+                        >
+                            <FolderTree size={16} /> Interactive Tree Editor
+                        </button>
+                        <button onClick={exportToCSV} className="flex items-center gap-2 px-3 py-2 bg-surfaceHighlight/30 hover:bg-surfaceHighlight/50 text-white rounded-lg transition-colors text-sm">
                                 <Copy size={14} /> Export CSV
                             </button>
                             <label className="flex items-center gap-2 px-3 py-2 bg-surfaceHighlight/30 hover:bg-surfaceHighlight/50 text-white rounded-lg transition-colors text-sm cursor-pointer">
@@ -1737,7 +1915,7 @@ export default function Servers() {
                                                 <div className="flex flex-col">
                                                     <span className="text-sm font-medium text-white">{pub.topic || 'New Publication'}</span>
                                                     <span className="text-xs text-text-muted">
-                                                        {config.config.brokers.find(b => b.id === pub.broker_id)?.host || 'Unknown Broker'} • {pub.interval}s
+                                                        {config.config.brokers.find(b => b.id === pub.broker_id)?.host || 'Unknown Broker'} â€¢ {pub.interval}s
                                                     </span>
                                                 </div>
                                             </div>
@@ -1767,6 +1945,31 @@ export default function Servers() {
                                                 <div>
                                                     <label className="text-xs text-text-muted block mb-1">Interval (s)</label>
                                                     <input type="number" value={pub.interval} onChange={(e) => updatePublication(idx, 'interval', parseInt(e.target.value))} className="w-full bg-bg-card border border-surfaceHighlight/30 rounded px-3 py-2 text-sm text-white" />
+                                                </div>
+                                            </div>
+                                            {/* QoS + Retain */}
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="text-xs text-text-muted block mb-1">
+                                                        QoS Level <InfoHover text="0=At-most-once (fire & forget), 1=At-least-once (acknowledged), 2=Exactly-once (handshaked)." />
+                                                    </label>
+                                                    <select value={pub.qos ?? 0}
+                                                        onChange={(e) => updatePublication(idx, 'qos', parseInt(e.target.value))}
+                                                        className="w-full bg-bg-card border border-surfaceHighlight/30 rounded px-3 py-2 text-sm text-white">
+                                                        <option value={0}>QoS 0 â€” At most once</option>
+                                                        <option value={1}>QoS 1 â€” At least once</option>
+                                                        <option value={2}>QoS 2 â€” Exactly once</option>
+                                                    </select>
+                                                </div>
+                                                <div className="flex items-center gap-3 pt-5">
+                                                    <input type="checkbox" id={`retain-${pub.id}`}
+                                                        checked={pub.retain || false}
+                                                        onChange={(e) => updatePublication(idx, 'retain', e.target.checked)}
+                                                        className="w-4 h-4 rounded border-surfaceHighlight/50 bg-surfaceHighlight/20 text-primary focus:ring-primary focus:ring-offset-0"
+                                                    />
+                                                    <label htmlFor={`retain-${pub.id}`} className="text-xs text-text-muted cursor-pointer">
+                                                        Retain last message on broker
+                                                    </label>
                                                 </div>
                                             </div>
 
@@ -2018,3 +2221,4 @@ export default function Servers() {
         </div>
     );
 }
+

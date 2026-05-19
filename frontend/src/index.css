@@ -1,4 +1,4 @@
-@import "tailwindcss";
+﻿@import "tailwindcss";
 
 @theme {
     --color-background: #0f172a;
@@ -20,11 +20,33 @@
 
     --shadow-glow: 0 0 20px rgba(59, 130, 246, 0.5);
     --shadow-card: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+
+    /* Sharp industrial aesthetic - zero curvature */
+    --radius-none: 0px;
+    --radius-sm:   0px;
+    --radius:      0px;
+    --radius-md:   0px;
+    --radius-lg:   0px;
+    --radius-xl:   0px;
+    --radius-2xl:  0px;
+    --radius-3xl:  0px;
+    --radius-full: 0px;
 }
 
 @layer base {
     body {
         @apply bg-background text-text-primary font-sans antialiased;
+        color-scheme: dark;
+    }
+    
+    /* Force zero rounding on all standard elements for the sharpest look */
+    button, input, select, textarea, div, span, section, article, nav, header, footer {
+        border-radius: 0px !important;
+    }
+    
+    option {
+        background-color: var(--color-surface);
+        color: var(--color-text-primary);
     }
 }
 
@@ -38,9 +60,16 @@
 }
 
 ::-webkit-scrollbar-thumb {
-    @apply bg-surfaceHighlight rounded-full;
+    @apply bg-surfaceHighlight;
+    border-radius: 0px !important;
 }
 
 ::-webkit-scrollbar-thumb:hover {
     @apply bg-secondary;
+}
+
+/* Diagnostic Progress Animations */
+@keyframes progress-shimmer {
+    0% { background-position: 0 0; }
+    100% { background-position: 40px 0; }
 }

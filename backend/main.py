@@ -69,7 +69,7 @@ async def startup_event():
     
     # Start Polling Engine
     from app.services.polling import PollingEngine
-    polling_engine = PollingEngine()
+    polling_engine = PollingEngine.get_instance()
     await polling_engine.start()
 
     # Start Calculation Engine
@@ -100,6 +100,10 @@ async def startup_event():
     # Start Buffering Service
     from app.services.buffering_service import buffering_service
     await buffering_service.start()
+
+    # Start DataStore Service
+    from app.services.datastore_service import datastore_service
+    await datastore_service.start()
 
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse

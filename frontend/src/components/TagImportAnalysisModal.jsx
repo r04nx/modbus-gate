@@ -2,6 +2,16 @@ import React, { useState } from 'react';
 import { X, AlertTriangle, ArrowRight, Check, Trash2, Edit2, Plus, Info } from 'lucide-react';
 import clsx from 'clsx';
 
+// Tooltip helper component
+const InfoHover = ({ text }) => (
+    <div className="group relative ml-2 inline-flex items-center text-text-muted hover:text-white cursor-help">
+        <Info size={14} />
+        <div className="pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-[120%] left-1/2 -translate-x-1/2 mb-2 w-64 p-2 bg-gray-900 border border-surfaceHighlight/50 text-xs text-gray-300 rounded shadow-lg z-50 text-center">
+            {text}
+        </div>
+    </div>
+);
+
 const TagImportAnalysisModal = ({ analysis, onClose, onConfirm, type }) => {
     const { summary, changes } = analysis;
     const [filter, setFilter] = useState('ALL'); // ALL, NEW, MODIFIED, DELETED
@@ -58,6 +68,21 @@ const TagImportAnalysisModal = ({ analysis, onClose, onConfirm, type }) => {
                         <div className="text-xs font-bold text-text-muted uppercase tracking-wider">Unchanged</div>
                     </div>
                 </div>
+
+                {/* Errors Display */}
+                {analysis.errors && analysis.errors.length > 0 && (
+                    <div className="m-6 mb-2 bg-error/10 border border-error/30 rounded-xl p-4">
+                        <div className="flex items-center gap-2 text-error font-bold mb-2">
+                            <AlertTriangle size={18} />
+                            <span>Import Errors ({analysis.errors.length})</span>
+                        </div>
+                        <ul className="list-disc list-inside text-sm text-error/80 max-h-32 overflow-y-auto space-y-1">
+                            {analysis.errors.map((err, idx) => (
+                                <li key={idx}>{err}</li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
 
                 {/* Filter Tabs */}
                 <div className="px-6 pt-4 flex gap-2">
@@ -187,21 +212,27 @@ const TagImportAnalysisModal = ({ analysis, onClose, onConfirm, type }) => {
                     </button>
 
                     <div className="flex gap-4">
-                        <button
-                            onClick={() => onConfirm(false)} // replace=false (Merge)
-                            className="flex items-center gap-2 px-6 py-3 rounded-xl font-bold bg-surfaceHighlight/30 text-white hover:bg-surfaceHighlight/50 hover:text-white transition-all border border-surfaceHighlight/50"
-                        >
-                            <Plus size={18} />
-                            Merge (Keep Existing)
-                        </button>
+                        <div className="flex items-center">
+                            <button
+                                onClick={() => onConfirm(false)} // replace=false (Merge)
+                                className="flex items-center gap-2 px-6 py-3 rounded-xl font-bold bg-surfaceHighlight/30 text-white hover:bg-surfaceHighlight/50 hover:text-white transition-all border border-surfaceHighlight/50"
+                            >
+                                <Plus size={18} />
+                                Merge (Keep Existing)
+                            </button>
+                            <InfoHover text="Pulls specific changes and new lines from CSV without clearing any definitions you established previously that weren't inside the CSV." />
+                        </div>
 
-                        <button
-                            onClick={() => onConfirm(true)} // replace=true (Sync)
-                            className="flex items-center gap-2 px-8 py-3 rounded-xl font-bold bg-primary hover:bg-primaryHover text-white shadow-lg shadow-primary/20 hover:shadow-primary/40 hover:-translate-y-0.5 transition-all"
-                        >
-                            <Check size={18} />
-                            {summary.deleted > 0 ? `Replace & Delete (${summary.deleted})` : 'Import & Replace'}
-                        </button>
+                        <div className="flex items-center">
+                            <button
+                                onClick={() => onConfirm(true)} // replace=true (Sync)
+                                className="flex items-center gap-2 px-8 py-3 rounded-xl font-bold bg-primary hover:bg-primaryHover text-white shadow-lg shadow-primary/20 hover:shadow-primary/40 hover:-translate-y-0.5 transition-all"
+                            >
+                                <Check size={18} />
+                                {summary.deleted > 0 ? `Replace & Delete (${summary.deleted})` : 'Import & Replace'}
+                            </button>
+                            <InfoHover text="Completely wipes the device's currently held mappings, and overwrites them entirely with exactly what the CSV represents." />
+                        </div>
                     </div>
                 </div>
 

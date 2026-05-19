@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Body
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List
@@ -14,6 +14,7 @@ import c104
 import asyncio
 import csv
 import io
+import subprocess
 
 router = APIRouter()
 
@@ -84,87 +85,68 @@ def device_to_row(device: models.Device) -> dict:
 
 
 def row_to_connection_params(row: dict, device_type: str) -> dict:
-    """Build connection_params JSON from a CSV row based on device type."""
-    def _int(key, default=None):
-        v = row.get(key, '').strip()
-        try:
-            return int(v) if v else default
-        except ValueError:
-            return default
-
-    def _float(key, default=None):
-        v = row.get(key, '').strip()
-        try:
-            return float(v) if v else default
-        except ValueError:
-            return default
-
-    def _bool(key, default=False):
-        v = row.get(key, '').strip().lower()
-        if v in ('true', '1', 'yes'):
-            return True
-        if v in ('false', '0', 'no'):
-            return False
-        return default
-
+    """Build connection_params JSON from a CSV row based on device type, preserving all info."""
+    params = {}
+    
+    # 1. Start with defaults based on device type
     if device_type == 'MODBUS_TCP':
-        return {
-            'host': row.get('host', '127.0.0.1').strip() or '127.0.0.1',
-            'port': _int('port', 502),
-            'slave_id': _int('slave_id', 1),
-        }
+        params = {'host': '127.0.0.1', 'port': 502, 'slave_id': 1}
     elif device_type == 'MODBUS_RTU':
         params = {
-            'port': row.get('port', '').strip(),
-            'slave_id': _int('slave_id', 1),
-            'baudrate': _int('baudrate', 9600),
-            'databits': _int('databits', 8),
-            'stopbits': _float('stopbits', 1),
-            'parity': row.get('parity', 'N').strip() or 'N',
-            'rts': _bool('rts', False),
-            'dtr': _bool('dtr', False),
+            'port': '', 'slave_id': 1, 'baudrate': 9600, 
+            'databits': 8, 'stopbits': 1, 'parity': 'N', 
+            'rts': False, 'dtr': False
         }
-        if row.get('scan_time', '').strip():
-            params['scan_time'] = _int('scan_time', 1000)
-        if row.get('timeout', '').strip():
-            params['timeout'] = _int('timeout', 1000)
-        if row.get('retry_count', '').strip():
-            params['retry_count'] = _int('retry_count', 3)
-        if row.get('auto_recover_time', '').strip():
-            params['auto_recover_time'] = _int('auto_recover_time', 60)
-        return params
     elif device_type == 'OPC_UA':
-        return {
-            'url': row.get('url', 'opc.tcp://localhost:4840').strip() or 'opc.tcp://localhost:4840',
-        }
+        params = {'url': 'opc.tcp://localhost:4840'}
     elif device_type == 'SNMP':
-        version = row.get('version', 'v2c').strip() or 'v2c'
-        params = {
-            'host': row.get('host', '127.0.0.1').strip() or '127.0.0.1',
-            'port': _int('port', 161),
-            'version': version,
-        }
-        if version in ('v1', 'v2c'):
-            params['community'] = row.get('community', 'public').strip() or 'public'
-        elif version == 'v3':
-            params['username'] = row.get('username', '').strip()
-            sec_level = row.get('security_level', 'noAuthNoPriv').strip() or 'noAuthNoPriv'
-            params['security_level'] = sec_level
-            if sec_level in ('authNoPriv', 'authPriv'):
-                params['auth_protocol'] = row.get('auth_protocol', 'SHA').strip() or 'SHA'
-                params['auth_password'] = row.get('auth_password', '').strip()
-            if sec_level == 'authPriv':
-                params['priv_protocol'] = row.get('priv_protocol', 'AES').strip() or 'AES'
-                params['priv_password'] = row.get('priv_password', '').strip()
-        return params
+        params = {'host': '127.0.0.1', 'port': 161, 'version': 'v2c', 'community': 'public'}
     elif device_type == 'IEC104':
-        return {
-            'host': row.get('host', '127.0.0.1').strip() or '127.0.0.1',
-            'port': _int('port', 2404),
-            'common_address': _int('common_address', 1),
-        }
-    else:
-        return {}
+        params = {'host': '127.0.0.1', 'port': 2404, 'common_address': 1}
+
+    # 2. Field type mapping for robust conversion
+    # Map from column name to its expected Python type
+    FIELD_TYPES = {
+        'port': int, 'slave_id': int, 'baudrate': int, 'databits': int,
+        'stopbits': float, 'rts': bool, 'dtr': bool,
+        'scan_time': int, 'timeout': int, 'retry_count': int, 'auto_recover_time': int,
+        'common_address': int
+    }
+
+    # 3. Overlay any non-empty fields from the CSV row that match CSV_FIELDNAMES
+    # Metadata fields that go into the main Device model columns, not connection_params
+    metadata_fields = {'name', 'description', 'type', 'enabled', 'polling_interval'}
+
+    for key in CSV_FIELDNAMES:
+        if key in metadata_fields or key not in row:
+            continue
+            
+        val = row[key].strip()
+        if not val:
+            continue
+            
+        # Type conversion with fallback to original string
+        try:
+            # Special case for 'port' which is a string path in RTU but int in others
+            if key == 'port' and device_type == 'MODBUS_RTU':
+                params[key] = val
+                continue
+
+            target_type = FIELD_TYPES.get(key, str)
+            if target_type == bool:
+                params[key] = val.lower() in ('true', '1', 'yes')
+            elif target_type == int:
+                params[key] = int(val)
+            elif target_type == float:
+                params[key] = float(val)
+            else:
+                params[key] = val
+        except (ValueError, TypeError):
+            # If conversion fails, keep the original string or existing default
+            if key not in params:
+                params[key] = val
+            
+    return params
 
 
 def rows_are_equal(device: models.Device, row: dict) -> bool:
@@ -800,4 +782,142 @@ async def test_connection(device_id: int, current_user: User = Depends(get_curre
             "code": "ERR_INTERNAL",
             "message": "Internal Error",
             "detail": str(e)
+        }
+
+@router.get("/health")
+def get_devices_health(current_user: User = Depends(get_current_user)):
+    """Get real-time health status from the Polling Engine"""
+    from app.services.polling import PollingEngine
+    engine = PollingEngine.get_instance()
+    return engine.get_health_status()
+
+@router.post("/{device_id}/diagnose/{tool}")
+async def diagnose_device(
+    device_id: int, 
+    tool: str, 
+    payload: dict = Body({}),
+    current_user: User = Depends(get_current_user), 
+    db: Session = Depends(get_db)
+):
+    """Run diagnostic tools (ping, nmap, traceroute) against a device host"""
+    device = db.query(models.Device).filter(models.Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    params = device.connection_params
+    host = params.get("host") or params.get("url")
+    
+    if not host:
+        raise HTTPException(status_code=400, detail="Device does not have a host or URL configured")
+    
+    import os
+    from urllib.parse import urlparse
+    # Strip protocols from URL if needed
+    if "://" in host:
+        host = urlparse(host).hostname
+    
+    if tool not in ["ping", "nmap", "traceroute"]:
+        raise HTTPException(status_code=400, detail=f"Unsupported diagnostic tool: {tool}")
+    
+    # Construct command securely
+    cmd = []
+    if tool == "ping":
+        cmd = ["ping", "-c", "4", host] if os.name != 'nt' else ["ping", "-n", "4", host]
+    elif tool == "nmap":
+        # Whitelist of allowed flags for security
+        ALLOWED_FLAGS = {
+            "-p-", "-sV", "-O", "-A", "-Pn", "-T4", "--open", "-F", "-sC", "-sS", "-sU", "-T1", "-T2", "-T3", "-T5"
+        }
+        
+        user_options = payload.get("options", [])
+        validated_options = [opt for opt in user_options if opt in ALLOWED_FLAGS]
+        
+        # If no valid options provided, use a reasonable default
+        if not validated_options:
+            validated_options = ["-p-", "-T4", "-sV", "--open"]
+            
+        cmd = ["nmap"] + validated_options + [host]
+    elif tool == "traceroute":
+        cmd = ["traceroute", host] if os.name != 'nt' else ["tracert", host]
+        
+    try:
+        # Run process with timeout (increased for full scan)
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        # Nmap -p- with -sV on an IoT board can take several minutes
+        timeout = 300 if tool == "nmap" else (60 if tool == "traceroute" else 30)
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+        
+        output_str = stdout.decode() if stdout else ""
+        error_str = stderr.decode() if stderr else ""
+
+        # Parse results into structured JSON for better UI
+        parsed_result = None
+        
+        if tool == "ping":
+            import re
+            # Match: 4 tablets transmitted, 4 received, 0% packet loss, time 3004ms
+            # rtt min/avg/max/mdev = 0.041/0.052/0.065/0.011 ms
+            stats_match = re.search(r'(\d+) packets transmitted, (\d+) received, ([\d.]+)% packet loss', output_str)
+            rtt_match = re.search(r'rtt min/avg/max/mdev = ([\d.]+)/([\d.]+)/([\d.]+)/', output_str)
+            
+            if stats_match:
+                parsed_result = {
+                    "transmitted": int(stats_match.group(1)),
+                    "received": int(stats_match.group(2)),
+                    "loss": float(stats_match.group(3)),
+                    "avg_latency": float(rtt_match.group(2)) if rtt_match else None
+                }
+
+        elif tool == "nmap" and "PORT" in output_str:
+            import re
+            ports = []
+            for line in output_str.splitlines():
+                match = re.match(r'^(\d+/\w+)\s+(\w+)\s+(.+)$', line.strip())
+                if match:
+                    p_info = match.group(3).split(maxsplit=1)
+                    service = p_info[0] if len(p_info) > 0 else "unknown"
+                    version = p_info[1] if len(p_info) > 1 else ""
+                    ports.append({
+                        "port": match.group(1),
+                        "state": match.group(2),
+                        "service": service,
+                        "version": version
+                    })
+            if ports:
+                parsed_result = {"ports": ports}
+
+        elif tool == "traceroute":
+            import re
+            hops = []
+            # Match:  1  10.0.0.1 (10.0.0.1)  1.234 ms
+            for line in output_str.splitlines():
+                match = re.search(r'^\s*(\d+)\s+([\d.]+.*ms)', line.strip())
+                if match:
+                    hops.append({
+                        "hop": int(match.group(1)),
+                        "detail": match.group(2).strip()
+                    })
+            if hops:
+                parsed_result = {"hops": hops}
+
+        return {
+            "status": "success",
+            "command": " ".join(cmd),
+            "output": output_str,
+            "parsed": parsed_result,
+            "error": error_str
+        }
+    except asyncio.TimeoutError:
+        return {
+            "status": "error",
+            "message": f"Diagnostic tool '{tool}' timed out after {timeout} seconds"
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Execution failed: {str(e)}"
         }

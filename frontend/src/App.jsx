@@ -12,6 +12,7 @@ import Servers from './pages/Servers'; // Added Servers import
 import Settings from './pages/Settings';
 import Terminal from './pages/Terminal';
 import BufferedData from './pages/BufferedData';
+import DataStore from './pages/DataStore';
 
 import Layout from './components/Layout';
 import Database from './pages/Database';
@@ -54,6 +55,7 @@ function App() {
                   <Route path="/database" element={<Database />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/buffered-data" element={<BufferedData />} />
+                  <Route path="/datastore" element={<DataStore />} />
                 </Routes>
               </Layout>
             </PrivateRoute>
