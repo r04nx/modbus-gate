@@ -116,6 +116,7 @@ class PollingEngine:
         self._modbus_clients = {} # Cache for persistent Modbus connections
         self.MAX_CONSECUTIVE_FAILURES = 3
         self.BACKOFF_DURATION = 60 # seconds
+        self.last_ip = None
 
     def get_health_status(self):
         """Returns the current health status of all polled devices"""
@@ -138,6 +139,44 @@ class PollingEngine:
         while self.running:
             start_time = asyncio.get_event_loop().time()
             try:
+                # ---- Detect network IP change (interface failover) ----------
+                try:
+                    tags = await self.store.get_all_tags()
+                    ip_tag = tags.get("SYS_IP_ADDRESS")
+                    current_ip = ip_tag.value if ip_tag else None
+                    if current_ip and self.last_ip and current_ip != self.last_ip:
+                        logging.info(f"Network IP changed from {self.last_ip} to {current_ip}. Resetting all polling clients for failover...")
+                        
+                        # Close Modbus TCP/Serial clients
+                        for client_key, client in list(self._modbus_clients.items()):
+                            try:
+                                client.close()
+                            except Exception as e:
+                                logging.warning(f"Error closing Modbus client {client_key}: {e}")
+                        self._modbus_clients.clear()
+
+                        # Close OPC UA clients
+                        for device_id, client in list(self._opcua_clients.items()):
+                            try:
+                                await client.disconnect()
+                            except Exception as e:
+                                logging.warning(f"Error disconnecting OPC UA client {device_id}: {e}")
+                        self._opcua_clients.clear()
+
+                        # Close IEC 104 clients
+                        for client_key, conn_data in list(self._iec104_clients.items()):
+                            try:
+                                conn_data['client'].disconnect_all()
+                                conn_data['client'].stop()
+                            except Exception as e:
+                                logging.warning(f"Error stopping IEC 104 client {client_key}: {e}")
+                        self._iec104_clients.clear()
+                        
+                    if current_ip:
+                        self.last_ip = current_ip
+                except Exception as net_err:
+                    logging.error(f"Error during network failover check: {net_err}")
+
                 # 1. Fetch Configuration EFFICIENTLY
                 now_time = time.time()
                 if now_time - last_config_load > 5.0 or not device_configs:

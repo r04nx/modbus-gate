@@ -49,6 +49,7 @@ class MQTTPublisherService:
         self._broker_cfg_hash: dict[str, str] = {}
         self._retry_count: dict[str, int] = {}
         self._retry_after: dict[str, float] = {}  # epoch time when next retry is allowed
+        self.last_ip = None
 
     # ------------------------------------------------------------------
     # Entry point
@@ -247,7 +248,8 @@ class MQTTPublisherService:
         host = cfg.get("host", "localhost")
         port = int(cfg.get("port", default_port))
 
-        client.connect(host, port, keepalive=60)
+        client.reconnect_delay_set(min_delay=1, max_delay=10)
+        client.connect(host, port, keepalive=15)
         client.loop_start()
         logger.info("Connecting to MQTT broker %s @ %s:%d (TLS=%s auth=%s)",
                     b_id, host, port, use_tls, bool(username))
@@ -356,6 +358,15 @@ class MQTTPublisherService:
 
                 # ---- Process publications -------------------------------------
                 tags = await store.get_all_tags()
+
+                # ---- Detect network IP change (interface failover) ----------
+                current_ip = tags.get("SYS_IP_ADDRESS").value if "SYS_IP_ADDRESS" in tags else None
+                if current_ip and self.last_ip and current_ip != self.last_ip:
+                    logger.info("Network IP changed from %s to %s. Forcing MQTT reconnect for failover...", self.last_ip, current_ip)
+                    for b_id in list(self.brokers.keys()):
+                        self._disconnect_broker(b_id)
+                if current_ip:
+                    self.last_ip = current_ip
 
                 for pub in publications:
                     pub_id   = pub.get("id")
