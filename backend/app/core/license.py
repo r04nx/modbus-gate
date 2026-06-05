@@ -39,7 +39,7 @@ def get_hardware_id():
 # Machine ID: 936bf6598f494a68b0c8e50fa5b51cd8
 # Raw: 08:ef:6c:c7:36:58-936bf6598f494a68b0c8e50fa5b51cd8
 # I will calculate the hash of this string and replace VALID_LICENSE_KEY.
-VALID_LICENSE_KEY = "bb59ca636e867905034cc4a1958a383370a674229e859d67e6c057f2d1d3f25e"
+VALID_LICENSE_KEY = "b599f842e75e641236d844c1e2ea9ddeb691c1a89236ad6e50d67f2bd5a7a004"
 
 def verify_license():
     current_id = get_hardware_id()

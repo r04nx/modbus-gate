@@ -449,10 +449,10 @@ class PollingEngine:
                          start, count, items = batch['start'], batch['count'], batch['items']
                          try:
                             rr = None
-                            if reg_type == "HOLDING": rr = await client.read_holding_registers(start, count=count, device_id=slave_id)
-                            elif reg_type == "INPUT": rr = await client.read_input_registers(start, count=count, device_id=slave_id)
-                            elif reg_type == "COIL": rr = await client.read_coils(start, count=count, device_id=slave_id)
-                            elif reg_type == "DISCRETE": rr = await client.read_discrete_inputs(start, count=count, device_id=slave_id)
+                            if reg_type == "HOLDING": rr = await client.read_holding_registers(start, count=count, slave=slave_id)
+                            elif reg_type == "INPUT": rr = await client.read_input_registers(start, count=count, slave=slave_id)
+                            elif reg_type == "COIL": rr = await client.read_coils(start, count=count, slave=slave_id)
+                            elif reg_type == "DISCRETE": rr = await client.read_discrete_inputs(start, count=count, slave=slave_id)
 
                             if rr and not rr.isError():
                                  for item in items:

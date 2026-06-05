@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-REMOTE_HOST="100.120.145.20"
+REMOTE_HOST="10.10.217.107"
 REMOTE_USER="root"
 REMOTE_PASS="root"
 REMOTE_DIR="/root/modbus-gate"

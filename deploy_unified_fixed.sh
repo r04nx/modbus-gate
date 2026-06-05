@@ -3,7 +3,7 @@ set -e
 
 # Configuration
 REMOTE_USER="root"
-REMOTE_HOST="100.120.145.20"
+REMOTE_HOST="10.10.217.107"
 REMOTE_PASS="root"
 REMOTE_PATH="/root/modbus-gate"
 PROJECT_ROOT=$(pwd)
@@ -15,8 +15,9 @@ echo "🚀 Starting Unified Deployment..."
 # 1. Frontend Build
 echo "📦 Building Frontend..."
 cd "$PROJECT_ROOT/frontend"
-npm install
-npm run build
+pnpm install
+pnpm approve-builds --all
+pnpm build
 
 # 2. Sync Frontend to Backend
 echo "🔄 Syncing Frontend to Backend..."
