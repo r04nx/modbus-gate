@@ -13,9 +13,11 @@ class OPCUAServerService:
         self.server = Server()
         self.server_task = None
         self.running = False
+        self.enabled = False
         self.namespace_idx = 2
         self.mapped_nodes = {} # tag_id -> node
         self.folders_cache = {} # cache for dynamic folders
+        self.last_written_values = {} # cache to prevent duplicate writes
         self._last_mappings_hash = None # detect config changes
 
     async def start(self):
@@ -23,7 +25,8 @@ class OPCUAServerService:
         await self._load_config()
         
         # Start the server in a background task
-        self.server_task = asyncio.create_task(self._run_server())
+        if self.enabled:
+            self.server_task = asyncio.create_task(self._run_server())
         # Start sync task
         asyncio.create_task(self._sync_store())
 
@@ -31,15 +34,18 @@ class OPCUAServerService:
         from app.core.database import SessionLocal
         from app.models import models
         
+        self.enabled = False
         try:
             db = SessionLocal()
             config = db.query(models.ServerConfig).filter(models.ServerConfig.type == "OPC_UA_SERVER").first()
-            if config and config.enabled:
-                raw_port = config.config.get("port")
-                self.port = int(raw_port) if raw_port else 4840
-                
-                raw_endpoint = config.config.get("endpoint")
-                self.endpoint = raw_endpoint if raw_endpoint else f"opc.tcp://0.0.0.0:{self.port}/vistaiot/server/"
+            if config:
+                self.enabled = config.enabled
+                if self.enabled:
+                    raw_port = config.config.get("port")
+                    self.port = int(raw_port) if raw_port else 4840
+                    
+                    raw_endpoint = config.config.get("endpoint")
+                    self.endpoint = raw_endpoint if raw_endpoint else f"opc.tcp://0.0.0.0:{self.port}/vistaiot/server/"
             db.close()
         except Exception as e:
             logging.error(f"Error loading OPC UA Server config: {e}")
@@ -73,38 +79,43 @@ class OPCUAServerService:
     async def _sync_store(self):
         from app.core.database import SessionLocal
         from app.models import models
+        import time
         
         global_store = GlobalDataStore()
         
+        last_config_load = 0.0
+        mappings = []
+        new_port = self.port
+        new_endpoint = self.endpoint
+        new_enabled = False
+        
         while True:
             try:
-                # Reload config to check for changes
-                mappings = []
-                new_port = self.port
-                new_endpoint = self.endpoint
-                new_enabled = False
-                
-                try:
-                    db = SessionLocal()
-                    config = db.query(models.ServerConfig).filter(models.ServerConfig.type == "OPC_UA_SERVER").first()
-                    if config:
-                        new_enabled = config.enabled
-                        
-                        raw_port = config.config.get("port")
-                        new_port = int(raw_port) if raw_port else 4840
-                        
-                        raw_endpoint = config.config.get("endpoint")
-                        new_endpoint = raw_endpoint if raw_endpoint else f"opc.tcp://0.0.0.0:{new_port}/vistaiot/server/"
-                        
-                        if new_enabled:
-                            mappings = config.config.get("mappings", [])
-                    db.close()
-                except Exception as e:
-                    logging.error(f"Error reloading OPC UA config: {e}")
+                now = time.time()
+                # Reload config every 5 seconds
+                if now - last_config_load > 5.0 or not mappings:
+                    try:
+                        db = SessionLocal()
+                        config = db.query(models.ServerConfig).filter(models.ServerConfig.type == "OPC_UA_SERVER").first()
+                        if config:
+                            new_enabled = config.enabled
+                            
+                            raw_port = config.config.get("port")
+                            new_port = int(raw_port) if raw_port else 4840
+                            
+                            raw_endpoint = config.config.get("endpoint")
+                            new_endpoint = raw_endpoint if raw_endpoint else f"opc.tcp://0.0.0.0:{new_port}/vistaiot/server/"
+                            
+                            if new_enabled:
+                                mappings = config.config.get("mappings", [])
+                        db.close()
+                        last_config_load = now
+                    except Exception as e:
+                        logging.error(f"Error reloading OPC UA config: {e}")
 
                 # Check if restart is needed
                 restart_needed = False
-                if new_enabled != self.running:
+                if new_enabled != self.enabled:
                     restart_needed = True
                 elif new_enabled and (new_port != self.port or new_endpoint != self.endpoint):
                     restart_needed = True
@@ -122,6 +133,7 @@ class OPCUAServerService:
 
                 if restart_needed:
                     logging.info(f"OPC UA Config changed. Restarting server... (Enabled: {new_enabled}, Port: {new_port})")
+                    self.enabled = new_enabled
                     
                     # Stop existing server
                     if self.server_task:
@@ -204,19 +216,22 @@ class OPCUAServerService:
                             logging.error(f"Error creating node for {tag_id}: {e}")
                             continue
                     
-                    # Update value
+                    # Update value (only if it changed)
                     if val is not None and tag_id in self.mapped_nodes:
-                        try:
-                            node = self.mapped_nodes[tag_id]
-                            await node.write_value(val)
-                        except Exception as e:
-                            # Node might be invalid if server restarted
-                            if "BadSessionIdInvalid" in str(e) or "BadSecureChannelIdInvalid" in str(e):
-                                self.mapped_nodes = {} # Clear cache to force recreation
-                                self.folders_cache = {}
-                            pass
+                        if self.last_written_values.get(tag_id) != val:
+                            try:
+                                node = self.mapped_nodes[tag_id]
+                                await node.write_value(val)
+                                self.last_written_values[tag_id] = val
+                            except Exception as e:
+                                # Node might be invalid if server restarted
+                                if "BadSessionIdInvalid" in str(e) or "BadSecureChannelIdInvalid" in str(e):
+                                    self.mapped_nodes = {} # Clear cache to force recreation
+                                    self.folders_cache = {}
+                                    self.last_written_values = {}
+                                pass
                             
             except Exception as e:
                 logging.error(f"Error syncing OPC UA store: {e}")
             
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1.0)

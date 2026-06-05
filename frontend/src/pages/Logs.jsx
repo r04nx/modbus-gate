@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { getLogs, clearLogs } from '../services/api';
 import { FileText, RefreshCw, Download, Trash2, Filter } from 'lucide-react';
 import clsx from 'clsx';
+import SearchableSelect from '../components/SearchableSelect';
 
 const Logs = () => {
     const [logs, setLogs] = useState([]);
@@ -107,17 +108,18 @@ const Logs = () => {
                     {/* Filter Dropdown */}
                     <div className="flex items-center gap-2">
                         <Filter size={18} className="text-text-muted" />
-                        <select
+                        <SearchableSelect
                             value={filter}
-                            onChange={(e) => setFilter(e.target.value)}
-                            className="px-4 py-2 bg-surfaceHighlight border border-surfaceHighlight rounded-lg text-white focus:outline-none focus:border-primary"
-                        >
-                            <option value="ALL">All Levels</option>
-                            <option value="ERROR">Error</option>
-                            <option value="WARNING">Warning</option>
-                            <option value="INFO">Info</option>
-                            <option value="DEBUG">Debug</option>
-                        </select>
+                            onChange={(val) => setFilter(val)}
+                            options={[
+                                { value: 'ALL', label: 'All Levels' },
+                                { value: 'ERROR', label: 'Error' },
+                                { value: 'WARNING', label: 'Warning' },
+                                { value: 'INFO', label: 'Info' },
+                                { value: 'DEBUG', label: 'Debug' }
+                            ]}
+                            className="w-48"
+                        />
                     </div>
 
                     {/* Real-time Toggle */}

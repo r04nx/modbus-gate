@@ -1,4 +1,4 @@
-import asyncio
+import threading
 import time
 from typing import Dict, Any, Optional, List
 from datetime import datetime
@@ -13,7 +13,7 @@ class TagValue(BaseModel):
 
 class GlobalDataStore:
     _instance = None
-    _lock = asyncio.Lock()
+    _lock = threading.Lock()
     _data: Dict[str, TagValue] = {} # tag_id -> TagValue
     _history: Dict[str, List[Dict[str, Any]]] = {} # tag_id -> list of {timestamp, value}
 
@@ -24,7 +24,7 @@ class GlobalDataStore:
 
     @classmethod
     async def update_tag(cls, tag_id: str, value: Any, quality: str = "GOOD", error_message: Optional[str] = None):
-        async with cls._lock:
+        with cls._lock:
             current_time = time.time()
             
             # Update history for sparklines (only for numeric values with GOOD quality)
@@ -62,12 +62,12 @@ class GlobalDataStore:
 
     @classmethod
     async def get_tag(cls, tag_id: str) -> Optional[TagValue]:
-        async with cls._lock:
+        with cls._lock:
             return cls._data.get(tag_id)
 
     @classmethod
     async def get_all_tags(cls, history_limit: int = 60) -> Dict[str, TagValue]:
-        async with cls._lock:
+        with cls._lock:
             # Create a copy and inject history
             result = {}
             for tag_id, tag_val in cls._data.items():
@@ -85,7 +85,7 @@ class GlobalDataStore:
 
     @classmethod
     async def delete_tag(cls, tag_id: str):
-        async with cls._lock:
+        with cls._lock:
             if tag_id in cls._data:
                 del cls._data[tag_id]
             if tag_id in cls._history: # Also delete from history
@@ -93,5 +93,5 @@ class GlobalDataStore:
 
     @classmethod
     async def get_tag_history(cls, tag_id: str) -> List[float]:
-        async with cls._lock:
+        with cls._lock:
             return cls._history.get(tag_id, [])

@@ -78,17 +78,33 @@ class DataStoreService:
     # ------------------------------------------------------------------
 
     async def _loop(self):
+        last_config_load = 0.0
+        cfg = None
+        all_io_ids = []
+        interval = 1
+        enabled = False
+        included = []
+
         while self._running:
             try:
-                db = SessionLocal()
-                try:
-                    cfg = self._load_config(db)
-                    interval = max(1, cfg.sample_interval)
-                    enabled = cfg.enabled
-                    included = list(cfg.included_tags or [])
-                    all_io_ids = self._get_io_tag_ids(db)
-                finally:
-                    db.close()
+                now = time.time()
+                # Reload config every 5 seconds
+                if now - last_config_load > 5.0 or cfg is None:
+                    db = SessionLocal()
+                    try:
+                        cfg_db = self._load_config(db)
+                        interval = max(1, cfg_db.sample_interval)
+                        enabled = cfg_db.enabled
+                        included = list(cfg_db.included_tags or [])
+                        all_io_ids = self._get_io_tag_ids(db)
+                        cfg = {
+                            "enabled": enabled,
+                            "sample_interval": interval,
+                            "included_tags": included
+                        }
+                    finally:
+                        db.close()
+                    last_config_load = now
 
                 if not enabled:
                     # Sleep 5 s between checks while disabled

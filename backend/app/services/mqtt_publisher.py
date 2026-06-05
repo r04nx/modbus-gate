@@ -267,32 +267,39 @@ class MQTTPublisherService:
 
         store = GlobalDataStore()
 
+        last_config_load = 0.0
+        config_data = {}
+        
         while True:
             if not self.running:
                 await asyncio.sleep(1)
                 continue
 
             try:
-                # ---- Reload config -------------------------------------------
-                config_data: dict = {}
-                db = None
-                try:
-                    db = SessionLocal()
-                    cfg_row = db.query(models.ServerConfig).filter(
-                        models.ServerConfig.type == "MQTT_PUBLISHER"
-                    ).first()
-                    if cfg_row and cfg_row.enabled:
-                        config_data = cfg_row.config or {}
-                except Exception as exc:
-                    logger.error("Error loading MQTT config: %s", exc)
-                    if db:
-                        db.close()
-                    await asyncio.sleep(2)
-                    continue
+                # ---- Reload config every 5 seconds ---------------------------
+                now = time.time()
+                if now - last_config_load > 5.0 or not config_data:
+                    config_data = {}
+                    db = None
+                    try:
+                        db = SessionLocal()
+                        cfg_row = db.query(models.ServerConfig).filter(
+                            models.ServerConfig.type == "MQTT_PUBLISHER"
+                        ).first()
+                        if cfg_row and cfg_row.enabled:
+                            config_data = cfg_row.config or {}
+                        last_config_load = now
+                    except Exception as exc:
+                        logger.error("Error loading MQTT config: %s", exc)
+                        if db:
+                            db.close()
+                        await asyncio.sleep(2)
+                        continue
+                    finally:
+                        if db:
+                            db.close()
 
                 if not config_data:
-                    if db:
-                        db.close()
                     await asyncio.sleep(2)
                     continue
 

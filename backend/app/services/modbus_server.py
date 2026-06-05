@@ -99,28 +99,33 @@ class ModbusServerService:
         from app.core.database import SessionLocal
         from app.models import models
         import json
+        import time
         
         last_config_hash = None
+        last_config_load = 0.0
+        db_config = None
 
         while True:
             try:
-                # 1. Check Configuration
-                db_config = None
-                try:
-                    db = SessionLocal()
-                    config = db.query(models.ServerConfig).filter(models.ServerConfig.type == "MODBUS_SERVER").first()
-                    if config:
-                        db_config = {
-                            "enabled": config.enabled,
-                            "port": int(config.config.get("port", 5020)),
-                            "mappings": config.config.get("mappings", []),
-                            "reset_on_change": config.config.get("reset_on_change", False)
-                        }
-                    db.close()
-                except Exception as e:
-                    logging.error(f"Error checking Modbus config: {e}")
-                    await asyncio.sleep(5)
-                    continue
+                # 1. Check Configuration every 5 seconds
+                now = time.time()
+                if now - last_config_load > 5.0 or db_config is None:
+                    try:
+                        db = SessionLocal()
+                        config = db.query(models.ServerConfig).filter(models.ServerConfig.type == "MODBUS_SERVER").first()
+                        if config:
+                            db_config = {
+                                "enabled": config.enabled,
+                                "port": int(config.config.get("port", 5020)),
+                                "mappings": config.config.get("mappings", []),
+                                "reset_on_change": config.config.get("reset_on_change", False)
+                            }
+                        db.close()
+                        last_config_load = now
+                    except Exception as e:
+                        logging.error(f"Error checking Modbus config: {e}")
+                        await asyncio.sleep(5)
+                        continue
 
                 if not db_config:
                     await asyncio.sleep(5)

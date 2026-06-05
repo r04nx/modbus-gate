@@ -10,6 +10,7 @@ import {
 } from '../../services/api';
 import { TableSkeleton } from '../common/Skeleton';
 import { useToast } from '../../contexts/ToastContext';
+import SearchableSelect from '../SearchableSelect';
 
 const UserManagement = () => {
     const [users, setUsers] = useState([]);
@@ -233,14 +234,14 @@ const UserManagement = () => {
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-text-secondary mb-2">Role</label>
-                                <select
+                                <SearchableSelect
                                     value={formData.role}
-                                    onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-                                    className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-400 transition-colors"
-                                >
-                                    <option value="root">Root</option>
-                                    <option value="superroot">Superroot</option>
-                                </select>
+                                    onChange={(val) => setFormData({ ...formData, role: val })}
+                                    options={[
+                                        { value: 'root', label: 'Root' },
+                                        { value: 'superroot', label: 'Superroot' }
+                                    ]}
+                                />
                             </div>
                             <div className="flex gap-3 pt-2">
                                 <button

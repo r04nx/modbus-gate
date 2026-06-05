@@ -107,7 +107,9 @@ class PollingEngine:
         self.running = False
         self.store = GlobalDataStore()
         self._opcua_clients = {} # Cache for persistent OPC UA connections
+        self._iec104_clients = {} # Cache for persistent IEC 104 connections
         self._serial_locks = {} # Locks for serial ports to prevent racing
+        self.loop = None
         
         # Smart Polling State
         self._device_stats = {} # {device_id: {'failures': 0, 'backoff_until': 0, 'last_error': '', 'status': 'OK'}}
@@ -120,6 +122,7 @@ class PollingEngine:
         return self._device_stats
 
     async def start(self):
+        self.loop = asyncio.get_event_loop()
         self.running = True
         asyncio.create_task(self._loop())
 
@@ -127,57 +130,62 @@ class PollingEngine:
         self.running = False
 
     async def _loop(self):
+        import time
+        last_config_load = 0.0
+        device_configs = []
+        disabled_devices = []
+        
         while self.running:
             start_time = asyncio.get_event_loop().time()
             try:
                 # 1. Fetch Configuration EFFICIENTLY
-                # Open DB, get what we need, and Close immediately.
-                # Do NOT hold the session open while polling networks!
-                device_configs = []
-                disabled_devices = []
-                
-                try:
-                    db: Session = SessionLocal()
-                    
-                    # Fetch enabled devices with their tags
-                    # We load everything into memory dicts/objects to avoid lazy loading issues after session closes
-                    devices = db.query(models.Device).filter(models.Device.enabled == True).all()
-                    
-                    for device in devices:
-                        # Create a lightweight config object
-                        dev_cfg = {
-                            'id': device.id,
-                            'name': device.name,
-                            'type': device.type,
-                            'connection_params': device.connection_params,
-                            'tags': []
-                        }
+                now_time = time.time()
+                if now_time - last_config_load > 5.0 or not device_configs:
+                    device_configs = []
+                    disabled_devices = []
+                    db = None
+                    try:
+                        db = SessionLocal()
                         
-                        for tag in device.tags:
-                            if tag.enabled:
-                                dev_cfg['tags'].append({
-                                    'tag_id': tag.tag_id,
-                                    'type': tag.type,
-                                    'address': tag.address,
-                                    'data_type': tag.data_type,
-                                    'params': tag.params,
-                                    'fallback_type': tag.fallback_type,
-                                    'fallback_value': tag.fallback_value
-                                })
-                        device_configs.append(dev_cfg)
+                        # Fetch enabled devices with their tags
+                        devices = db.query(models.Device).filter(models.Device.enabled == True).all()
                         
-                    # Fetch disabled devices to update their status
-                    disabled_devs = db.query(models.Device).filter(models.Device.enabled == False).all()
-                    for device in disabled_devs:
-                        tags = [t.tag_id for t in device.tags]
-                        disabled_devices.append(tags)
-                        
-                except Exception as e:
-                    logging.error(f"Error fetching config from DB: {e}")
-                finally:
-                    # CRITICAL: Always close the DB session
-                    if db:
-                        db.close()
+                        for device in devices:
+                            # Create a lightweight config object
+                            dev_cfg = {
+                                'id': device.id,
+                                'name': device.name,
+                                'type': device.type,
+                                'connection_params': device.connection_params,
+                                'tags': []
+                            }
+                            
+                            for tag in device.tags:
+                                if tag.enabled:
+                                    dev_cfg['tags'].append({
+                                        'tag_id': tag.tag_id,
+                                        'type': tag.type,
+                                        'address': tag.address,
+                                        'data_type': tag.data_type,
+                                        'params': tag.params,
+                                        'fallback_type': tag.fallback_type,
+                                        'fallback_value': tag.fallback_value
+                                    })
+                            device_configs.append(dev_cfg)
+                            
+                        # Fetch disabled devices to update their status
+                        disabled_devs = db.query(models.Device).filter(models.Device.enabled == False).all()
+                        for device in disabled_devs:
+                            tags = [t.tag_id for t in device.tags]
+                            disabled_devices.append(tags)
+                            
+                        last_config_load = now_time
+                    except Exception as e:
+                        logging.error(f"Error fetching config from DB: {e}")
+                    finally:
+                        # CRITICAL: Always close the DB session
+                        if db:
+                            db.close()
 
                 # 2. Perform Polling (No DB Lock here!)
                 tasks = []
@@ -512,37 +520,60 @@ class PollingEngine:
                 self._opcua_clients[device_id] = client
                 logging.info(f"Connected to OPC UA device {dev_name} at {url}")
             
+            # Collect tags to poll
+            enabled_tags = []
             for tag in tags:
                 if isinstance(tag, dict):
-                    t_enabled = True
-                    t_address = tag['address']
-                    t_id = tag['tag_id']
+                    t_enabled = tag.get('enabled', True)
+                    t_address = tag.get('address')
+                    t_id = tag.get('tag_id')
                 else:
                     t_enabled = tag.enabled
                     t_address = tag.address
                     t_id = tag.tag_id
-
+                
                 if t_enabled and t_address:
-                    try:
-                        node = client.get_node(t_address)
-                        val = await node.read_value()
+                    enabled_tags.append((tag, t_address, t_id))
+            
+            if not enabled_tags:
+                return True, None
+                
+            try:
+                # 1. Try batch reading first for maximum efficiency
+                nodes = [client.get_node(addr) for _, addr, _ in enabled_tags]
+                try:
+                    vals = await client.read_values(nodes)
+                    for (tag, _, t_id), val in zip(enabled_tags, vals):
                         await self.store.update_tag(t_id, val)
-                    except Exception as e:
-                        # If we get a connection related error, we should probably reset the client
-                        error_msg = f"OPC UA Error: {str(e)}"
-                        logging.error(f"Error reading OPC UA tag {t_id}: {error_msg}")
-                        await self._handle_error(tag, error_msg)
-                        
-                        # Check if it's a connection error to trigger reconnect
-                        if "connection" in str(e).lower() or "socket" in str(e).lower() or "timeout" in str(e).lower():
-                            logging.warning(f"OPC UA connection lost for {dev_name}, resetting client...")
-                            try:
-                                await client.disconnect()
-                            except:
-                                pass
-                            self._opcua_clients.pop(device_id, None)
-                            return False, error_msg # Signal failure
-
+                except Exception as batch_err:
+                    logging.warning(f"OPC UA batch read failed ({batch_err}) for {dev_name}, falling back to individual reads...")
+                    # 2. Fallback to individual reads if batch fails
+                    for tag, addr, t_id in enabled_tags:
+                        try:
+                            node = client.get_node(addr)
+                            val = await node.read_value()
+                            await self.store.update_tag(t_id, val)
+                        except Exception as tag_err:
+                            error_msg = f"OPC UA Error: {str(tag_err)}"
+                            await self._handle_error(tag, error_msg)
+                            # If connection error, raise to trigger reconnect
+                            if any(x in str(tag_err).lower() for x in ["connection", "socket", "timeout"]):
+                                raise tag_err
+            except Exception as e:
+                # If we get a connection related error, we should reset the client
+                error_msg = f"OPC UA Connection Error: {str(e)}"
+                logging.error(f"Error reading OPC UA tags: {error_msg}")
+                
+                # Check if it's a connection error to trigger reconnect
+                if any(x in str(e).lower() for x in ["connection", "socket", "timeout", "badsession", "securechannel"]):
+                    logging.warning(f"OPC UA connection lost for {dev_name}, resetting client...")
+                    try:
+                        await client.disconnect()
+                    except:
+                        pass
+                    self._opcua_clients.pop(device_id, None)
+                    return False, error_msg # Signal failure
+                
         except Exception as e:
             error_msg = f"OPC UA Connection Error: {str(e)}"
             logging.error(f"Error connecting/polling OPC UA {url}: {error_msg}")
@@ -580,7 +611,6 @@ class PollingEngine:
                 community = params.get("community", "public")
                 mp_model = 0 if version == "v1" else 1
                 auth_data = CommunityData(community, mpModel=mp_model)
-                
                 
             elif version == "v3":
                 # User-based security model
@@ -627,51 +657,68 @@ class PollingEngine:
                 logging.error(error_msg)
                 return False, error_msg
 
-            # Poll each tag
+            # Group enabled tags to query in batches
+            enabled_tags = []
             for tag in tags:
                 if isinstance(tag, dict):
-                    t_enabled = True
-                    t_address = tag['address']
-                    t_id = tag['tag_id']
+                    t_enabled = tag.get('enabled', True)
+                    t_address = tag.get('address')
+                    t_id = tag.get('tag_id')
                 else:
                     t_enabled = tag.enabled
                     t_address = tag.address
                     t_id = tag.tag_id
+                
+                if t_enabled and t_address:
+                    enabled_tags.append((tag, t_address, t_id))
+            
+            if not enabled_tags:
+                return True, None
 
-                if t_enabled and t_address:  # address is OID e.g. "1.3.6.1.2.1.1.1.0"
-                    try:
-                        errorIndication, errorStatus, errorIndex, varBinds = await getCmd(
-                            SnmpEngine(),
-                            auth_data,
-                            UdpTransportTarget((host, port), timeout=params.get("timeout", 5), retries=params.get("retries", 3)),
-                            ContextData(),
-                            ObjectType(ObjectIdentity(t_address))
-                        )
+            # Initialize SnmpEngine once if not done
+            if not hasattr(self, '_snmp_engine'):
+                self._snmp_engine = SnmpEngine()
 
-                        if errorIndication:
-                            error_msg = f"SNMP Network Error: {errorIndication}"
-                            logging.error(error_msg)
+            # Batch queries in groups of 20
+            batch_size = 20
+            for i in range(0, len(enabled_tags), batch_size):
+                batch = enabled_tags[i:i+batch_size]
+                var_binds = [ObjectType(ObjectIdentity(t_address)) for _, t_address, _ in batch]
+                
+                try:
+                    errorIndication, errorStatus, errorIndex, varBinds = await getCmd(
+                        self._snmp_engine,
+                        auth_data,
+                        UdpTransportTarget((host, port), timeout=params.get("timeout", 5), retries=params.get("retries", 3)),
+                        ContextData(),
+                        *var_binds
+                    )
+                    
+                    if errorIndication:
+                        error_msg = f"SNMP Network Error: {errorIndication}"
+                        logging.error(error_msg)
+                        for tag, _, _ in batch:
                             await self._handle_error(tag, error_msg)
-                        elif errorStatus:
-                            error_msg = f"SNMP Protocol Error: {errorStatus.prettyPrint()} at {errorIndex and varBinds[int(errorIndex) - 1][0] or '?'}"
-                            logging.error(error_msg)
+                    elif errorStatus:
+                        error_msg = f"SNMP Protocol Error: {errorStatus.prettyPrint()}"
+                        logging.error(error_msg)
+                        for tag, _, _ in batch:
                             await self._handle_error(tag, error_msg)
-                        else:
-                            for varBind in varBinds:
-                                # varBind is (OID, Value)
+                    else:
+                        for idx, varBind in enumerate(varBinds):
+                            if idx < len(batch):
+                                tag, _, t_id = batch[idx]
                                 val = varBind[1]
                                 val_str = val.prettyPrint()
                                 
-                                # Check for SNMP exception values
                                 if "No Such Instance" in val_str or "No Such Object" in val_str:
-                                    error_msg = f"SNMP Error: {val_str}"
-                                    await self._handle_error(tag, error_msg)
+                                    await self._handle_error(tag, f"SNMP Error: {val_str}")
                                 else:
-                                    # Convert SNMP types to python types if needed
                                     await self.store.update_tag(t_id, str(val))
-                    except Exception as e:
-                        error_msg = f"SNMP Exception: {str(e)}"
-                        logging.error(f"Error reading SNMP tag {t_id}: {error_msg}")
+                except Exception as e:
+                    error_msg = f"SNMP Exception: {str(e)}"
+                    logging.error(f"Error querying SNMP batch: {error_msg}")
+                    for tag, _, _ in batch:
                         await self._handle_error(tag, error_msg)
                 
             return True, None
@@ -679,67 +726,79 @@ class PollingEngine:
             return False, str(e)
 
     async def _poll_iec104(self, device):
-        # IEC104 is usually event-driven, but here we implement a simple poll (interrogation)
+        # IEC104 is event-driven; we maintain a persistent client connection
+        import time
         if isinstance(device, dict):
             params = device['connection_params']
             tags = device['tags']
             dev_name = device['name']
+            device_id = device['id']
         else:
             params = device.connection_params
             tags = device.tags
             dev_name = device.name
+            device_id = device.id
         
         host = params.get("host", "127.0.0.1")
-        port = params.get("port", 2404)
+        port = int(params.get("port", 2404))
+        ca = int(params.get("common_address", 0))
         
-        received_data = {}
-
-        def on_receive(point: c104.Point, previous_info: c104.Information, message: c104.IncomingMessage) -> bool:
-            # Map IO address to value
-            received_data[str(point.io_address)] = point.value
-            return True
-
-        def on_new_point(client: c104.Client, station: c104.Station, io_address: int, point_type: c104.Type) -> None:
-            # We need to add the point to the station to interact with it
-            # and register the callback
-            point = station.add_point(io_address, point_type)
-            point.on_receive(on_receive)
-
+        client_key = device_id
+        
         try:
-            client = c104.Client()
-            client.on_new_point(on_new_point)
-            
-            connection = client.add_connection(ip=host, port=port)
-            
-            client.start()
-            
-            # Send interrogation
-            ca = int(params.get("common_address", 0))
-            connection.interrogation(common_address=ca)
-            
-            # Wait a bit for responses
-            await asyncio.sleep(1.0)
-            
-            # Update store
-            for tag in tags:
-                if isinstance(tag, dict):
-                    t_enabled = True
-                    t_address = tag['address']
-                    t_id = tag['tag_id']
-                else:
-                    t_enabled = tag.enabled
-                    t_address = tag.address
-                    t_id = tag.tag_id
+            conn_data = self._iec104_clients.get(client_key)
+            if not conn_data:
+                logging.info(f"Initializing persistent IEC 104 connection for {dev_name} at {host}:{port}")
+                client = c104.Client()
+                
+                # Define callback to capture self.loop and self.store
+                def on_receive(point: c104.Point, previous_info: c104.Information, message: c104.IncomingMessage) -> bool:
+                    ioa_str = str(point.io_address)
+                    for tag in tags:
+                        t_addr = tag.get('address') if isinstance(tag, dict) else tag.address
+                        t_id = tag.get('tag_id') if isinstance(tag, dict) else tag.tag_id
+                        if t_addr == ioa_str:
+                            loop = self.loop or asyncio.get_event_loop()
+                            asyncio.run_coroutine_threadsafe(
+                                self.store.update_tag(t_id, point.value),
+                                loop
+                            )
+                            break
+                    return True
 
-                if t_enabled and t_address:
-                    if t_address in received_data:
-                        await self.store.update_tag(t_id, received_data[t_address])
-            
-            # Client cleanup is handled by garbage collection/destructor in python bindings usually
+                def on_new_point(cl: c104.Client, station: c104.Station, io_address: int, point_type: c104.Type) -> None:
+                    point = station.add_point(io_address, point_type)
+                    point.on_receive(on_receive)
+
+                client.on_new_point(on_new_point)
+                connection = client.add_connection(ip=host, port=port)
+                client.start()
+                
+                # Interrogate once on connection
+                connection.interrogation(common_address=ca)
+                
+                self._iec104_clients[client_key] = {
+                    'client': client,
+                    'connection': connection,
+                    'last_interrogation': time.time()
+                }
+            else:
+                # Perform periodic interrogation to ensure fresh data
+                now = time.time()
+                if now - conn_data.get('last_interrogation', 0) > 60.0:
+                    try:
+                        conn_data['connection'].interrogation(common_address=ca)
+                        conn_data['last_interrogation'] = now
+                    except Exception as e:
+                        logging.warning(f"IEC 104 interrogation failed for {dev_name}: {e}")
+                        # Remove to trigger reconnect next time
+                        self._iec104_clients.pop(client_key, None)
+                        return False, f"Interrogation failed: {e}"
+
+            return True, None
             
         except Exception as e:
-            error_msg = f"Error polling IEC104 device {dev_name}: {e}"
+            error_msg = f"Error in IEC104 persistent client for {dev_name}: {e}"
             logging.error(error_msg)
+            self._iec104_clients.pop(client_key, None)
             return False, error_msg
-            
-        return True, None

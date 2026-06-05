@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Network, Wifi, WifiOff } from 'lucide-react';
+import { Network, Wifi, WifiOff, Smartphone } from 'lucide-react';
 import clsx from 'clsx';
 import api from '../../services/api';
 import WifiManager from './WifiManager';
+import CellularManager from './CellularManager';
+import SearchableSelect from '../SearchableSelect';
 
 const NetworkConfiguration = () => {
-    const [activeTab, setActiveTab] = useState('ethernet'); // 'ethernet' | 'wifi'
+    const [activeTab, setActiveTab] = useState('ethernet'); // 'ethernet' | 'wifi' | 'cellular'
     const [interfaces, setInterfaces] = useState([]);
     const [selectedInterface, setSelectedInterface] = useState('');
     const [config, setConfig] = useState({ dhcp: true, ip_address: '', netmask: '' });
@@ -20,13 +22,14 @@ const NetworkConfiguration = () => {
     const fetchInterfaces = async () => {
         try {
             const res = await api.get('/network/interfaces');
+            const ethInterfaces = res.data.filter(iface => iface.name.startsWith('eth') || iface.name.startsWith('enp'));
             setInterfaces(res.data);
-            if (res.data.length > 0) {
-                setSelectedInterface(res.data[0].name);
+            if (ethInterfaces.length > 0) {
+                setSelectedInterface(ethInterfaces[0].name);
                 setConfig({
-                    dhcp: res.data[0].dhcp || false,
-                    ip_address: res.data[0].ip_address || '',
-                    netmask: res.data[0].netmask || ''
+                    dhcp: ethInterfaces[0].dhcp || false,
+                    ip_address: ethInterfaces[0].ip_address || '',
+                    netmask: ethInterfaces[0].netmask || ''
                 });
             }
         } catch (error) {
@@ -120,6 +123,18 @@ const NetworkConfiguration = () => {
                     <Wifi size={18} />
                     Wi-Fi
                 </button>
+                <button
+                    onClick={() => setActiveTab('cellular')}
+                    className={clsx(
+                        "px-4 py-2 rounded-xl text-sm font-medium transition-all flex items-center gap-2",
+                        activeTab === 'cellular'
+                            ? "bg-purple-500/20 text-purple-400 border border-purple-500/30"
+                            : "text-text-secondary hover:text-white hover:bg-surfaceHighlight/10"
+                    )}
+                >
+                    <Smartphone size={18} />
+                    Cellular / SIM
+                </button>
             </div>
 
             {/* Tab Content */}
@@ -133,17 +148,16 @@ const NetworkConfiguration = () => {
                     <div className="space-y-6">
                         <div>
                             <label className="block text-sm font-medium text-text-secondary mb-2">Network Interface</label>
-                            <select
+                            <SearchableSelect
                                 value={selectedInterface}
-                                onChange={(e) => handleInterfaceChange(e.target.value)}
-                                className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-400 transition-colors"
-                            >
-                                {interfaces.map((iface) => (
-                                    <option key={iface.name} value={iface.name}>
-                                        {iface.name} {iface.is_up ? '(UP)' : '(DOWN)'}
-                                    </option>
-                                ))}
-                            </select>
+                                onChange={handleInterfaceChange}
+                                options={interfaces
+                                    .filter(iface => iface.name.startsWith('eth') || iface.name.startsWith('enp'))
+                                    .map(iface => ({
+                                        value: iface.name,
+                                        label: `${iface.name} ${iface.is_up ? '(UP)' : '(DOWN)'}`
+                                    }))}
+                            />
                         </div>
 
                         <div className="flex items-center gap-6 bg-surfaceHighlight/5 rounded-xl p-4">
@@ -202,9 +216,13 @@ const NetworkConfiguration = () => {
                         </button>
                     </div>
                 </div>
-            ) : (
+            ) : activeTab === 'wifi' ? (
                 <div className="bg-surfaceHighlight/10 rounded-2xl p-6 border border-surfaceHighlight/30 animate-in fade-in duration-300">
                     <WifiManager />
+                </div>
+            ) : (
+                <div className="bg-surfaceHighlight/10 rounded-2xl p-6 border border-surfaceHighlight/30 animate-in fade-in duration-300">
+                    <CellularManager />
                 </div>
             )}
         </div>

@@ -129,13 +129,13 @@ class BufferingService:
         """Check status of all triggers."""
         # Internet (Ping 8.8.8.8)
         if self.config["internet_trigger"]:
-            self.triggers["internet"] = not self._ping("8.8.8.8")
+            self.triggers["internet"] = not await asyncio.to_thread(self._ping, "8.8.8.8")
 
         # Gateway (Ping default gateway)
         if self.config["gateway_trigger"]:
             gateway = self._get_default_gateway()
             if gateway:
-                self.triggers["gateway"] = not self._ping(gateway)
+                self.triggers["gateway"] = not await asyncio.to_thread(self._ping, gateway)
             else:
                 self.triggers["gateway"] = True # No gateway = disconnected
 

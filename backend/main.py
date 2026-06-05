@@ -54,56 +54,82 @@ async def check_license(request: Request, call_next):
         )
     return await call_next(request)
 
+import threading
+import asyncio
+
+def run_service_in_thread(service_instance):
+    def thread_target():
+        # Create and set a new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        # Log native thread ID
+        logging.info(f"Service {service_instance.__class__.__name__} starting in thread {threading.current_thread().name} with OS TID {threading.current_thread().native_id}")
+        
+        try:
+            # Start the service inside this thread's event loop
+            loop.run_until_complete(service_instance.start())
+            # Keep the event loop running to process background tasks
+            loop.run_forever()
+        except Exception as e:
+            logging.error(f"Error in background thread for service {service_instance.__class__.__name__}: {e}")
+        finally:
+            loop.close()
+            
+    t = threading.Thread(target=thread_target, name=f"Thread-{service_instance.__class__.__name__}", daemon=True)
+    t.start()
+    return t
+
 @app.on_event("startup")
 async def startup_event():
     from app.services.system_tags import SystemTagService
     from app.services.modbus_server import ModbusServerService
     
-    # Start System Tags
+    # Start System Tags in thread
     sys_tags = SystemTagService()
-    await sys_tags.start()
+    run_service_in_thread(sys_tags)
     
-    # Start Modbus Server
+    # Start Modbus Server in thread
     modbus_server = ModbusServerService()
-    await modbus_server.start()
+    run_service_in_thread(modbus_server)
     
-    # Start Polling Engine
+    # Start Polling Engine in thread
     from app.services.polling import PollingEngine
     polling_engine = PollingEngine.get_instance()
-    await polling_engine.start()
+    run_service_in_thread(polling_engine)
 
-    # Start Calculation Engine
+    # Start Calculation Engine in thread
     from app.services.calculation_engine import CalculationEngine
     calc_engine = CalculationEngine()
-    await calc_engine.start()
+    run_service_in_thread(calc_engine)
 
-    # Initialize User Tags
+    # Initialize User Tags (Runs synchronously once on startup, can run on main thread)
     from app.services.user_tags import UserTagService
     user_tags_service = UserTagService()
     await user_tags_service.start()
 
-    # Start OPC UA Server
+    # Start OPC UA Server in thread
     from app.services.opcua_server import OPCUAServerService
     opcua_server = OPCUAServerService()
-    await opcua_server.start()
+    run_service_in_thread(opcua_server)
 
-    # Start IEC 104 Server
+    # Start IEC 104 Server in thread
     from app.services.iec104_server import IEC104ServerService
     iec104_server = IEC104ServerService()
-    await iec104_server.start()
+    run_service_in_thread(iec104_server)
 
-    # Start MQTT Publisher
+    # Start MQTT Publisher in thread
     from app.services.mqtt_publisher import MQTTPublisherService
     mqtt_publisher = MQTTPublisherService()
-    await mqtt_publisher.start()
+    run_service_in_thread(mqtt_publisher)
 
-    # Start Buffering Service
+    # Start Buffering Service in thread
     from app.services.buffering_service import buffering_service
-    await buffering_service.start()
+    run_service_in_thread(buffering_service)
 
-    # Start DataStore Service
+    # Start DataStore Service in thread
     from app.services.datastore_service import datastore_service
-    await datastore_service.start()
+    run_service_in_thread(datastore_service)
 
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse

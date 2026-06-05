@@ -6,7 +6,7 @@ import time
 from app.core.store import GlobalDataStore
 
 class SystemTagService:
-    def __init__(self, interval: int = 1):
+    def __init__(self, interval: int = 5):
         self.interval = interval
         self.running = False
         self.store = GlobalDataStore()

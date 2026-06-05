@@ -5,6 +5,7 @@ import TagTreeSelector from './TagTreeSelector';
 import VariableMapper from './VariableMapper';
 import OperationsLibrary from './OperationsLibrary';
 import FormulaBuilder from './FormulaBuilder';
+import SearchableSelect from './SearchableSelect';
 
 const TagForm = ({ onClose, onSubmit, editTag = null, initialType = null }) => {
     const isEditMode = !!editTag;
@@ -85,6 +86,12 @@ const TagForm = ({ onClose, onSubmit, editTag = null, initialType = null }) => {
         } else {
             setFormData(prev => ({ ...prev, [name]: value }));
         }
+    };
+
+    const handleDeviceChange = (deviceId) => {
+        const dev = devices.find(d => d.id === parseInt(deviceId));
+        setSelectedDevice(dev);
+        setFormData(prev => ({ ...prev, device_id: deviceId }));
     };
 
     const handleSubmit = (e) => {
@@ -590,15 +597,16 @@ const TagForm = ({ onClose, onSubmit, editTag = null, initialType = null }) => {
                 <form onSubmit={handleSubmit} className="p-6 space-y-6">
                     <div>
                         <label className="block text-sm font-medium text-text-secondary mb-2">Tag Type</label>
-                        <select
+                        <SearchableSelect
                             value={type}
-                            onChange={(e) => setType(e.target.value)}
-                            className="w-full bg-surfaceHighlight/20 border border-surfaceHighlight rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary transition-colors"
-                        >
-                            <option value="IO">IO Tag</option>
-                            <option value="USER">User Tag</option>
-                            <option value="CALCULATION">Calculation Tag</option>
-                        </select>
+                            onChange={(val) => setType(val)}
+                            options={[
+                                { value: 'IO', label: 'IO Tag' },
+                                { value: 'USER', label: 'User Tag' },
+                                { value: 'CALCULATION', label: 'Calculation Tag' },
+                            ]}
+                            placeholder="Select tag type..."
+                        />
                     </div>
 
                     <div>
@@ -629,16 +637,12 @@ const TagForm = ({ onClose, onSubmit, editTag = null, initialType = null }) => {
                         <>
                             <div>
                                 <label className="block text-sm font-medium text-slate-200 mb-1 font-semibold">Device</label>
-                                <select
-                                    name="device_id"
+                                <SearchableSelect
                                     value={formData.device_id}
-                                    onChange={handleChange}
-                                    className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
-                                >
-                                    {devices.map(d => (
-                                        <option key={d.id} value={d.id}>{d.name}</option>
-                                    ))}
-                                </select>
+                                    onChange={handleDeviceChange}
+                                    options={devices.map(d => ({ value: d.id, label: `${d.name} (${d.type || 'Unknown'})` }))}
+                                    placeholder="Search and select device..."
+                                />
                             </div>
 
                             {/* Dynamic Protocol Fields */}
@@ -651,16 +655,16 @@ const TagForm = ({ onClose, onSubmit, editTag = null, initialType = null }) => {
                                     <div className="space-y-3">
                                         <div>
                                             <label className="block text-sm font-medium text-slate-200 mb-1">On Connectivity Failure</label>
-                                            <select
-                                                name="fallback_type"
+                                            <SearchableSelect
                                                 value={formData.fallback_type}
-                                                onChange={handleChange}
-                                                className="w-full bg-primary border border-slate-700 rounded px-3 py-2 text-white focus:border-accent outline-none"
-                                            >
-                                                <option value="none">None (Return Null)</option>
-                                                <option value="last_success">Use Last Success Value</option>
-                                                <option value="default">Use Default Value</option>
-                                            </select>
+                                                onChange={(val) => setFormData(prev => ({ ...prev, fallback_type: val }))}
+                                                options={[
+                                                    { value: 'none', label: 'None (Return Null)' },
+                                                    { value: 'last_success', label: 'Use Last Success Value' },
+                                                    { value: 'default', label: 'Use Default Value' },
+                                                ]}
+                                                placeholder="Select fallback strategy..."
+                                            />
                                         </div>
 
                                         {formData.fallback_type === 'default' && (

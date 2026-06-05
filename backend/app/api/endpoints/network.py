@@ -17,6 +17,9 @@ import re
 import socket
 import json
 import psutil
+import serial
+import glob
+import logging
 
 from ...core.database import get_db
 from ...core.auth import get_current_user, get_current_superroot
@@ -50,6 +53,58 @@ class WifiStatusResponse(BaseModel):
     signal_strength: Optional[int]
     frequency: Optional[str]
     device: Optional[str]
+
+# Cellular Models
+class CellularStatusResponse(BaseModel):
+    connected: bool
+    sim_status: str
+    signal_strength: int  # 0 to 31
+    operator: str
+    registration_status: str
+    apn: str
+    ip_address: Optional[str]
+    interface: Optional[str]
+    device_model: Optional[str]
+
+class CellularConfigRequest(BaseModel):
+    apn: str
+    pin: Optional[str] = None
+
+# Modem Serial Helpers
+def get_modem_port():
+    for port in ['/dev/ttyUSB0', '/dev/ttyUSB5', '/dev/ttyUSB6'] + sorted(glob.glob('/dev/ttyUSB*')):
+        try:
+            s = serial.Serial(port, 115200, timeout=0.5)
+            s.write(b'AT\r\n')
+            res = s.read_until(b'OK')
+            if b'OK' in res:
+                s.close()
+                return port
+            s.close()
+        except:
+            pass
+    return None
+
+def query_at_commands(port):
+    res = {}
+    try:
+        s = serial.Serial(port, 115200, timeout=1.0)
+        cmds = {
+            'cpin': 'AT+CPIN?',
+            'csq': 'AT+CSQ',
+            'cops': 'AT+COPS?',
+            'cgreg': 'AT+CGREG?',
+            'cgdcont': 'AT+CGDCONT?',
+            'model': 'ATI'
+        }
+        for key, cmd in cmds.items():
+            s.write(cmd.encode() + b'\r\n')
+            out = s.read_until(b'OK').decode()
+            res[key] = out
+        s.close()
+    except Exception as e:
+        logger.error(f"Error communicating with modem: {e}")
+    return res
 
 import logging
 
@@ -381,8 +436,8 @@ def get_interfaces() -> List[NetworkInterface]:
             pass
 
         for iface_name, iface_addrs in addrs.items():
-            # Skip loopback
-            if iface_name == 'lo':
+            # Skip loopback and cellular interfaces (which have their own settings tab)
+            if iface_name == 'lo' or any(iface_name.startswith(pfx) for pfx in ['enx', 'wwan', 'ppp', 'usb']):
                 continue
                 
             is_up = stats[iface_name].isup if iface_name in stats else False
@@ -634,24 +689,219 @@ def test_internet_connectivity(
 ):
     """Test internet connectivity by pinging 8.8.8.8."""
     return test_connectivity()
-    """Test internet connectivity by pinging 8.8.8.8."""
-    return test_connectivity()
 
-@router.post("/wifi/disconnect")
-def disconnect_wifi(
+
+@router.get("/cellular/status", response_model=CellularStatusResponse)
+def get_cellular_status(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Disconnect current Wifi."""
+    port = get_modem_port()
+    if not port:
+        return CellularStatusResponse(
+            connected=False,
+            sim_status="MISSING",
+            signal_strength=0,
+            operator="No Device",
+            registration_status="Not Registered",
+            apn="N/A",
+            ip_address=None,
+            interface=None,
+            device_model=None
+        )
+    
+    raw = query_at_commands(port)
+    
+    # Parse Model
+    device_model = "Quectel EC200U"
+    if 'model' in raw:
+        match_model = re.search(r'EC\d+[A-Z0-9]*', raw['model'])
+        if match_model:
+            device_model = f"Quectel {match_model.group(0)}"
+
+    # Parse CPIN
+    sim_status = "UNKNOWN"
+    cpin_raw = raw.get('cpin', '')
+    if 'READY' in cpin_raw:
+        sim_status = "READY"
+    elif 'PIN' in cpin_raw:
+        sim_status = "PIN_REQUIRED"
+    elif 'PUK' in cpin_raw:
+        sim_status = "PUK_REQUIRED"
+    elif 'not inserted' in cpin_raw.lower() or 'error' in cpin_raw.lower():
+        sim_status = "MISSING"
+
+    # Parse CSQ
+    signal_strength = 0
+    csq_raw = raw.get('csq', '')
+    match_csq = re.search(r'\+CSQ:\s*(\d+)', csq_raw)
+    if match_csq:
+        signal_strength = int(match_csq.group(1))
+
+    # Parse COPS
+    operator = "No Service"
+    cops_raw = raw.get('cops', '')
+    match_cops = re.search(r'\+COPS:\s*\d+,\d+,\s*"([^"]+)"', cops_raw)
+    if match_cops:
+        operator = match_cops.group(1)
+
+    # Parse CGREG
+    registration_status = "UNKNOWN"
+    cgreg_raw = raw.get('cgreg', '')
+    match_cgreg = re.search(r'\+CGREG:\s*\d+,(\d+)', cgreg_raw)
+    if match_cgreg:
+        stat = int(match_cgreg.group(1))
+        registration_status = {
+            0: "Not Registered",
+            1: "Registered (Home)",
+            2: "Searching",
+            3: "Registration Denied",
+            4: "Unknown",
+            5: "Registered (Roaming)"
+        }.get(stat, "UNKNOWN")
+
+    # Parse CGDCONT
+    apn = "N/A"
+    cgdcont_raw = raw.get('cgdcont', '')
+    match_apn = re.search(r'\+CGDCONT:\s*1,\s*"[^"]+",\s*"([^"]+)"', cgdcont_raw)
+    if match_apn:
+        apn = match_apn.group(1)
+
+    # Find the network interface and IP
+    ip_address = None
+    interface = None
+    match_ip = re.search(r'\+CGDCONT:\s*1,\s*"[^"]+",\s*"[^"]+",\s*"([^"]+)"', cgdcont_raw)
+    if match_ip and match_ip.group(1) != "0.0.0.0":
+        ip_address = match_ip.group(1)
+        
+        # Find network interface matching this IP address
+        import psutil
+        addrs = psutil.net_if_addrs()
+        for iface_name, iface_addrs in addrs.items():
+            for addr in iface_addrs:
+                if addr.family == socket.AF_INET and addr.address == ip_address:
+                    interface = iface_name
+                    break
+            if interface:
+                break
+    
+    # Fallback to scanning interfaces if IP address not resolved this way
+    if not interface:
+        import psutil
+        addrs = psutil.net_if_addrs()
+        for iface_name, iface_addrs in addrs.items():
+            if any(iface_name.startswith(pfx) for pfx in ['enx', 'wwan', 'ppp', 'usb']):
+                interface = iface_name
+                for addr in iface_addrs:
+                    if addr.family == socket.AF_INET:
+                        ip_address = addr.address
+                        break
+                break
+
+    connected = (registration_status in ["Registered (Home)", "Registered (Roaming)"]) and (ip_address is not None)
+
+    return CellularStatusResponse(
+        connected=connected,
+        sim_status=sim_status,
+        signal_strength=signal_strength,
+        operator=operator,
+        registration_status=registration_status,
+        apn=apn,
+        ip_address=ip_address,
+        interface=interface,
+        device_model=device_model
+    )
+
+
+@router.post("/cellular/config")
+def update_cellular_config(
+    config: CellularConfigRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    port = get_modem_port()
+    if not port:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cellular modem not found or not responding"
+        )
+    
     try:
-        status = get_wifi_status_info()
-        if status.connected and status.device:
-            result = subprocess.run([NMCLI, "dev", "disconnect", status.device], capture_output=True, text=True)
-            if result.returncode != 0:
-                raise Exception(result.stderr)
-            return {"success": True, "message": "Disconnected"}
-        else:
-             return {"success": False, "message": "Not connected"}
+        s = serial.Serial(port, 115200, timeout=1.0)
+        
+        # 1. If PIN provided, send CPIN
+        if config.pin:
+            s.write(f'AT+CPIN="{config.pin}"\r\n'.encode())
+            res = s.read_until(b'OK')
+            if b'ERROR' in res:
+                s.close()
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Failed to set PIN on SIM card"
+                )
+        
+        # 2. Set APN on Context 1
+        s.write(f'AT+CGDCONT=1,"IP","{config.apn}"\r\n'.encode())
+        res = s.read_until(b'OK')
+        if b'ERROR' in res:
+            s.close()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to set APN to '{config.apn}' on modem"
+            )
+            
+        s.close()
+        
+        # 3. Find the network interface to restart
+        import psutil
+        interface = None
+        addrs = psutil.net_if_addrs()
+        for iface_name in addrs.keys():
+            if any(iface_name.startswith(pfx) for pfx in ['enx', 'wwan', 'ppp', 'usb']):
+                interface = iface_name
+                break
+                
+        # 4. Configure and restart the connection profile if found
+        if interface:
+            print(f"[DEBUG] Configuring and restarting cellular interface: {interface}")
+            connection_name = f"{interface}-config"
+            
+            # Check if connection profile exists
+            res_con = subprocess.run([NMCLI, "con", "show", connection_name], capture_output=True)
+            if res_con.returncode != 0:
+                print(f"[DEBUG] Creating new connection profile: {connection_name}")
+                subprocess.run([
+                    NMCLI, "con", "add",
+                    "type", "ethernet",
+                    "ifname", interface,
+                    "con-name", connection_name,
+                    "ipv4.method", "auto",
+                    "ipv4.never-default", "no",
+                    "ipv6.method", "auto",
+                    "ipv6.never-default", "no"
+                ], capture_output=True)
+            else:
+                print(f"[DEBUG] Modifying existing connection profile: {connection_name}")
+                subprocess.run([
+                    NMCLI, "con", "modify", connection_name,
+                    "ipv4.method", "auto",
+                    "ipv4.never-default", "no",
+                    "ipv6.method", "auto",
+                    "ipv6.never-default", "no"
+                ], capture_output=True)
+            
+            subprocess.run([NMCLI, "con", "down", connection_name], capture_output=True)
+            subprocess.run([NMCLI, "dev", "disconnect", interface], capture_output=True)
+            subprocess.run([NMCLI, "dev", "connect", interface], capture_output=True)
+            subprocess.run([NMCLI, "con", "up", connection_name], capture_output=True)
+
+        return {"success": True, "message": "Cellular configuration updated, reconnecting modem..."}
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to configure cellular: {str(e)}"
+        )
 

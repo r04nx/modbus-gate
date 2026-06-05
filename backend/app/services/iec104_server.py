@@ -147,9 +147,14 @@ class IEC104ServerService:
         """Synchronize tag values with IEC 104 points"""
         from app.core.database import SessionLocal
         from app.models import models
+        import time
         
         global_store = GlobalDataStore()
         last_mapping_count = 0
+        
+        last_config_load = 0.0
+        mappings = []
+        tag_params_map = {}
         
         while True:
             if not self.running or not self.station:
@@ -157,19 +162,29 @@ class IEC104ServerService:
                 continue
 
             try:
-                # Load mappings from database
-                mappings = []
-                try:
-                    db = SessionLocal()
-                    config = db.query(models.ServerConfig).filter(
-                        models.ServerConfig.type == "IEC104_SERVER"
-                    ).first()
-                    
-                    if config and config.enabled:
-                        mappings = config.config.get("mappings", [])
-                    db.close()
-                except Exception as e:
-                    logging.error(f"Error reloading IEC 104 config: {e}")
+                now = time.time()
+                # Load mappings and tag params from database every 5 seconds
+                if now - last_config_load > 5.0 or not mappings:
+                    try:
+                        db = SessionLocal()
+                        config = db.query(models.ServerConfig).filter(
+                            models.ServerConfig.type == "IEC104_SERVER"
+                        ).first()
+                        
+                        if config and config.enabled:
+                            mappings = config.config.get("mappings", [])
+                        
+                        # Load tag parameters for bit manipulation and scaling
+                        tag_params_map = {}
+                        db_tags = db.query(models.Tag).filter(models.Tag.enabled == True).all()
+                        for db_tag in db_tags:
+                            if db_tag.params:
+                                tag_params_map[db_tag.tag_id] = db_tag.params
+                                
+                        db.close()
+                        last_config_load = now
+                    except Exception as e:
+                        logging.error(f"Error reloading IEC 104 config: {e}")
 
                 # Log mapping count changes
                 if len(mappings) != last_mapping_count:
@@ -182,18 +197,6 @@ class IEC104ServerService:
 
                 # Get all tag values
                 tags = await global_store.get_all_tags()
-                
-                # Load tag parameters for bit manipulation and scaling
-                tag_params_map = {}
-                try:
-                    db = SessionLocal()
-                    db_tags = db.query(models.Tag).filter(models.Tag.enabled == True).all()
-                    for db_tag in db_tags:
-                        if db_tag.params:
-                            tag_params_map[db_tag.tag_id] = db_tag.params
-                    db.close()
-                except Exception as e:
-                    logging.error(f"Error loading tag params: {e}")
                 
                 # Process each mapping
                 for mapping in mappings:
@@ -307,5 +310,5 @@ class IEC104ServerService:
             except Exception as e:
                 logging.error(f"Error syncing IEC 104 store: {e}")
             
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1.0)
 
