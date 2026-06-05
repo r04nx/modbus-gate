@@ -13,9 +13,9 @@ class DeviceBase(BaseModel):
     polling_interval: int = 1000
 
     @field_validator('name')
-    def name_must_not_contain_spaces_or_colons(cls, v):
-        if re.search(r'[\s:]', v):
-            raise ValueError('Name must not contain spaces or colons')
+    def name_must_not_contain_colons(cls, v):
+        if ':' in v:
+            raise ValueError('Name must not contain colons')
         return v
 
 class DeviceCreate(DeviceBase):
@@ -30,9 +30,9 @@ class DeviceUpdate(BaseModel):
     polling_interval: Optional[int] = None
 
     @field_validator('name')
-    def name_must_not_contain_spaces_or_colons(cls, v):
-        if v is not None and re.search(r'[\s:]', v):
-            raise ValueError('Name must not contain spaces or colons')
+    def name_must_not_contain_colons(cls, v):
+        if v is not None and ':' in v:
+            raise ValueError('Name must not contain colons')
         return v
 
 class Device(DeviceBase):
@@ -59,9 +59,9 @@ class TagBase(BaseModel):
     enabled: bool = True
 
     @field_validator('name')
-    def name_must_not_contain_spaces_or_colons(cls, v):
-        if re.search(r'[\s:]', v):
-            raise ValueError('Name must not contain spaces or colons')
+    def name_must_not_contain_colons(cls, v):
+        if ':' in v:
+            raise ValueError('Name must not contain colons')
         return v
 
 class TagCreate(TagBase):
@@ -84,9 +84,9 @@ class TagUpdate(BaseModel):
     enabled: Optional[bool] = None
 
     @field_validator('name')
-    def name_must_not_contain_spaces_or_colons(cls, v):
-        if v is not None and re.search(r'[\s:]', v):
-            raise ValueError('Name must not contain spaces or colons')
+    def name_must_not_contain_colons(cls, v):
+        if v is not None and ':' in v:
+            raise ValueError('Name must not contain colons')
         return v
 
 class Tag(TagBase):
