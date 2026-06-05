@@ -100,7 +100,14 @@ def export_configuration(
     - include_hostname: Include OS hostname (default: True)
     """
     export_data = {}
+    errors = []
     
+    # Pre-declare counters so statistics block never hits NameError
+    devices = []
+    tags = []
+    server_configs = []
+    users = []
+
     # Get and export devices
     if include_devices:
         devices = db.query(Device).all()
@@ -201,11 +208,12 @@ def export_configuration(
                                     "content": base64.b64encode(content).decode('utf-8'),
                                     "permissions": oct(os.stat(filepath).st_mode)[-3:]
                                 }
-                        except Exception:
-                            pass  # Skip files we can't read
+                        except Exception as e:
+                            errors.append(f"SSH key '{filename}' could not be read: {e}")
             export_data["ssh_keys"] = ssh_keys
-        except Exception:
+        except Exception as e:
             export_data["ssh_keys"] = {}
+            errors.append(f"SSH key export failed: {e}")
     
     # Export Network Configuration
     if include_network:
@@ -247,11 +255,12 @@ def export_configuration(
             "ssh_keys": len(export_data.get("ssh_keys", {})),
             "network_interfaces": len(export_data.get("network_interfaces", {})),
             "users": len(users)
-        }
+        },
+        "export_errors": errors  # list any non-fatal issues during export
     }
     
     return ConfigExport(
-        version="2.0",  # Increment version for enhanced export
+        version="2.0",
         exported_at=datetime.utcnow().isoformat(),
         data=export_data
     )
@@ -283,64 +292,83 @@ def import_configuration(
             "network_interfaces": 0
         }
         warnings = []
+        errors_detail = []  # verbose per-item failure list
         new_ip = None
         
         # Import devices
         if config.import_devices and "devices" in data:
             for device_data in data["devices"]:
-                existing = db.query(Device).filter(Device.name == device_data["name"]).first()
-                
-                if existing and not config.overwrite:
-                    continue
-                elif existing and config.overwrite:
-                    # Update existing
-                    for key, value in device_data.items():
-                        if key != "id":
-                            setattr(existing, key, value)
-                else:
-                    # Create new
-                    new_device = Device(**{k: v for k, v in device_data.items() if k != "id"})
-                    db.add(new_device)
-                
-                imported_count["devices"] += 1
+                try:
+                    existing = db.query(Device).filter(Device.name == device_data["name"]).first()
+                    
+                    if existing and not config.overwrite:
+                        warnings.append(ImportWarning(
+                            type="skip",
+                            message=f"Device '{device_data['name']}' already exists — skipped (enable Overwrite to replace).",
+                            severity="info"
+                        ))
+                        continue
+                    elif existing and config.overwrite:
+                        for key, value in device_data.items():
+                            if key != "id":
+                                setattr(existing, key, value)
+                    else:
+                        new_device = Device(**{k: v for k, v in device_data.items() if k != "id"})
+                        db.add(new_device)
+                    
+                    imported_count["devices"] += 1
+                except Exception as e:
+                    errors_detail.append(f"Device '{device_data.get('name', '?')}': {e}")
         
         # Import tags
         if config.import_tags and "tags" in data:
             for tag_data in data["tags"]:
-                existing = db.query(Tag).filter(Tag.tag_id == tag_data["tag_id"]).first()
-                
-                if existing and not config.overwrite:
-                    continue
-                elif existing and config.overwrite:
-                    # Update existing
-                    for key, value in tag_data.items():
-                        if key != "id":
-                            setattr(existing, key, value)
-                else:
-                    # Create new
-                    new_tag = Tag(**{k: v for k, v in tag_data.items() if k != "id"})
-                    db.add(new_tag)
-                
-                imported_count["tags"] += 1
+                try:
+                    existing = db.query(Tag).filter(Tag.tag_id == tag_data["tag_id"]).first()
+                    
+                    if existing and not config.overwrite:
+                        warnings.append(ImportWarning(
+                            type="skip",
+                            message=f"Tag '{tag_data['tag_id']}' already exists — skipped.",
+                            severity="info"
+                        ))
+                        continue
+                    elif existing and config.overwrite:
+                        for key, value in tag_data.items():
+                            if key != "id":
+                                setattr(existing, key, value)
+                    else:
+                        new_tag = Tag(**{k: v for k, v in tag_data.items() if k != "id"})
+                        db.add(new_tag)
+                    
+                    imported_count["tags"] += 1
+                except Exception as e:
+                    errors_detail.append(f"Tag '{tag_data.get('tag_id', '?')}': {e}")
         
         # Import server configs
         if config.import_servers and "server_configs" in data:
             for sc_data in data["server_configs"]:
-                existing = db.query(ServerConfig).filter(ServerConfig.type == sc_data["type"]).first()
-                
-                if existing and not config.overwrite:
-                    continue
-                elif existing and config.overwrite:
-                    # Update existing
-                    for key, value in sc_data.items():
-                        if key != "id":
-                            setattr(existing, key, value)
-                else:
-                    # Create new
-                    new_sc = ServerConfig(**{k: v for k, v in sc_data.items() if k != "id"})
-                    db.add(new_sc)
-                
-                imported_count["server_configs"] += 1
+                try:
+                    existing = db.query(ServerConfig).filter(ServerConfig.type == sc_data["type"]).first()
+                    
+                    if existing and not config.overwrite:
+                        warnings.append(ImportWarning(
+                            type="skip",
+                            message=f"Server config '{sc_data['type']}' already exists — skipped.",
+                            severity="info"
+                        ))
+                        continue
+                    elif existing and config.overwrite:
+                        for key, value in sc_data.items():
+                            if key != "id":
+                                setattr(existing, key, value)
+                    else:
+                        new_sc = ServerConfig(**{k: v for k, v in sc_data.items() if k != "id"})
+                        db.add(new_sc)
+                    
+                    imported_count["server_configs"] += 1
+                except Exception as e:
+                    errors_detail.append(f"Server '{sc_data.get('type', '?')}': {e}")
         
         # Import system settings
         if config.import_system_settings and "system_settings" in data:
@@ -501,9 +529,19 @@ def import_configuration(
                 f"4. If you cannot connect, check your network cable and settings"
             )
         
+        # If any item-level errors, surface them as warnings
+        for err in errors_detail:
+            warnings.append(ImportWarning(
+                type="error",
+                message=err,
+                severity="critical"
+            ))
+
         return ImportResponse(
-            success=True,
-            message="Configuration imported successfully",
+            success=len(errors_detail) == 0,
+            message=f"Import complete. {sum(imported_count.values())} items imported" + (
+                f" with {len(errors_detail)} error(s)" if errors_detail else " successfully"
+            ),
             imported=imported_count,
             warnings=warnings,
             new_ip_address=new_ip,
