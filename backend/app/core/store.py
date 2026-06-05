@@ -22,9 +22,36 @@ class GlobalDataStore:
             cls._instance = super(GlobalDataStore, cls).__new__(cls)
         return cls._instance
 
+    @staticmethod
+    def _coerce_value(value: Any) -> Any:
+        """Convert c104 native types and other non-serialisable objects to Python primitives."""
+        if value is None:
+            return None
+        # Try bool first (bool is subclass of int)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, int):
+            return int(value)
+        if isinstance(value, float):
+            return float(value)
+        if isinstance(value, str):
+            return value
+        # c104 numeric types expose __float__ and __int__
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            pass
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            pass
+        # Last resort — stringify
+        return str(value)
+
     @classmethod
     async def update_tag(cls, tag_id: str, value: Any, quality: str = "GOOD", error_message: Optional[str] = None):
         with cls._lock:
+            value = cls._coerce_value(value)
             current_time = time.time()
             
             # Update history for sparklines (only for numeric values with GOOD quality)

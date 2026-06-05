@@ -752,7 +752,7 @@ class PollingEngine:
                 client = c104.Client()
                 
                 # Define callback to capture self.loop and self.store
-                def on_receive(point: c104.Point, previous_info: c104.Information, message: c104.IncomingMessage) -> bool:
+                def on_receive(point: c104.Point, previous_info: c104.Information, message: c104.IncomingMessage) -> c104.ResponseState:
                     ioa_str = str(point.io_address)
                     for tag in tags:
                         t_addr = tag.get('address') if isinstance(tag, dict) else tag.address
@@ -764,9 +764,9 @@ class PollingEngine:
                                 loop
                             )
                             break
-                    return True
+                    return c104.ResponseState.SUCCESS
 
-                def on_new_point(cl: c104.Client, station: c104.Station, io_address: int, point_type: c104.Type) -> None:
+                def on_new_point(client: c104.Client, station: c104.Station, io_address: int, point_type: c104.Type) -> None:
                     point = station.add_point(io_address, point_type)
                     point.on_receive(on_receive)
 
